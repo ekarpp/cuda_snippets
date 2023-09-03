@@ -4,6 +4,6 @@
 typedef unsigned long long u64;
 typedef unsigned long u32;
 
-void radix_sort(int n, u64* input);
+int radix_sort(int n, u64* input);
 
 #endif

@@ -20,6 +20,7 @@ constexpr int RADIX = 4;
 constexpr int RADIX_SIZE = 1 << RADIX;
 constexpr int RADIX_MASK = RADIX_SIZE - 1;
 
+/* simple scan with O(n log n) work, can be optimized... */
 __device__ void scan_bits(int depth, u64 *result)
 {
     int offset = 1 << depth;
@@ -41,7 +42,7 @@ __device__ void scan_bits(int depth, u64 *result)
 }
 
 
-__global__ void sort_block(u64_vec* data_in, u64_vec* data_out, const int length, const int start_bit)
+__global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int start_bit)
 {
     extern __shared__ u64 shared[];
 
@@ -104,7 +105,12 @@ __global__ void sort_block(u64_vec* data_in, u64_vec* data_out, const int length
     data_out[gidx] = my_data;
 }
 
-__global__ void compute_histograms(u64_vec2 *data, u32 *histograms, const int length, const int start_bit)
+__global__ void compute_histograms(
+    const u64_vec2 *data,
+    u32 *block_histograms,
+    const int num_blocks,
+    const int start_bit
+)
 {
     // latter value of pair from each thread
     __shared__ short radix[THREADS];
@@ -112,6 +118,10 @@ __global__ void compute_histograms(u64_vec2 *data, u32 *histograms, const int le
     __shared__ short ptrs[RADIX_SIZE];
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
+
+    /*
+     * fill histogram by finding the start points of each radix in the sorted data block
+     */
 
     u64_vec2 my_data = data[gidx];
     short2 my_radix;
@@ -135,42 +145,64 @@ __global__ void compute_histograms(u64_vec2 *data, u32 *histograms, const int le
     }
     __syncthreads();
 
-    const int hist_idx = blockIdx.x * RADIX_SIZE + lidx;
+    /* store in column major order */
+    const int hist_idx = num_blocks * lidx + blockIdx.x;
     if (lidx == RADIX_SIZE - 1)
     {
-        histograms[hist_idx] = (ptrs[lidx] != -1)
+        block_histograms[hist_idx] = (ptrs[lidx] != -1)
             ? 2 * THREADS - ptrs[lidx]
             : 0;
     }
     else if (lidx == 0)
     {
-        histograms[hist_idx] = ptrs[lidx] + 1;
+        block_histograms[hist_idx] = ptrs[lidx] + 1;
     }
     else if (lidx < RADIX_SIZE)
     {
-        histograms[hist_idx] = (ptrs[lidx] != -1)
+        block_histograms[hist_idx] = (ptrs[lidx] != -1)
             ? ptrs[lidx] - ptrs[lidx - 1]
             : 0;
     }
 }
 
+__global__ void scan_histograms(u32 *block_histograms, u32 *histogram)
+{
+
+}
+
+__global__ void reorder_data(const u64_vec *data_in, u64_vec *data_out)
+{
+
+}
+
+
 inline int static divup(int a, int b) { return (a + b - 1) / b; }
 
 // https://www.cs.umd.edu/class/spring2021/cmsc714/readings/Satish-sorting.pdf
-void radix_sort(int n, u64* input) {
+int radix_sort(int n, u64* input) {
+    if (n % ELEM_PER_BLOCK != 0)
+    {
+        return -1;
+    }
+
     const int blocks = divup(n, ELEM_PER_BLOCK);
     // for histogram each thread takes two elements
-    const int blocks_histogram = divup(n, 2 * THREADS);
+    const int blocks2 = divup(n, 2 * THREADS);
+    // for histogram scan each thread takes one element
+    const int blocks1 = divup(n, THREADS);
 
-    u64* data = NULL;
-    cudaMalloc((void**) &data, n * sizeof(u64));
+    u64 *data = NULL;
+    cudaMalloc((void **) &data, n * sizeof(u64));
     cudaMemcpy(data, input, n * sizeof(u64), cudaMemcpyHostToDevice);
 
-    u64* data_tmp = NULL;
-    cudaMalloc((void**) &data_tmp, n * sizeof(u64));
+    u64 *data_tmp = NULL;
+    cudaMalloc((void **) &data_tmp, n * sizeof(u64));
 
-    u32* histograms = NULL;
-    cudaMalloc((void**) &histograms, blocks * RADIX_SIZE * sizeof(u32));
+    u32 *block_histograms = NULL;
+    cudaMalloc((void **) &block_histograms, blocks2 * RADIX_SIZE * sizeof(u32));
+
+    u32 *histogram_scan = NULL;
+    cudaMalloc((void **) &histogram_scan, blocks2 * RADIX_SIZE * sizeof(u32));
 
     int start_bit = 0;
     while (start_bit < BITS)
@@ -181,18 +213,28 @@ void radix_sort(int n, u64* input) {
          */
         sort_block
             <<<blocks, THREADS, ELEM_PER_BLOCK * sizeof(u64)>>>
-            ((u64_vec *) data, (u64_vec *) data_tmp, n, start_bit);
+            ((u64_vec *) data, (u64_vec *) data_tmp, start_bit);
         /* (2) write histogram for each block to global memory */
         compute_histograms
-            <<<blocks_histogram, THREADS>>>
-            ((u64_vec2 *) data_tmp, histograms, n, start_bit);
+            <<<blocks2, THREADS>>>
+            ((u64_vec2 *) data_tmp, block_histograms, blocks2, start_bit);
         /* (3) prefix sum across blocks over the histograms */
-        /* (4) using prefix sum each block moves their elements to correct position */
+        scan_histograms
+            <<<blocks1, THREADS>>>
+            (block_histograms, histogram_scan);
+        /* (4) using histogram scan each block moves their elements to correct position */
+        reorder_data
+            <<<blocks, THREADS>>>
+            ((u64_vec *) data_tmp, (u64_vec *) data);
         start_bit += RADIX;
     }
 
+    cudaMemcpy(input, data, n * sizeof(u64), cudaMemcpyDeviceToHost);
 
     cudaFree(data);
     cudaFree(data_tmp);
-    cudaFree(histograms);
+    cudaFree(block_histograms);
+    cudaFree(histogram_scan);
+
+    return 0;
 }
