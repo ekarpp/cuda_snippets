@@ -20,8 +20,11 @@ constexpr int RADIX = 4;
 constexpr int RADIX_SIZE = 1 << RADIX;
 constexpr int RADIX_MASK = RADIX_SIZE - 1;
 
-/* simple scan with O(n log n) work, can be optimized... */
-__device__ void scan_bits(int depth, u64 *result)
+/*
+ * simple scan with O(n log n) work, can be optimized...
+ * each thread handles 4 consecutive elements.
+ */
+__device__ void scan_block(int depth, u64 *result)
 {
     int offset = 1 << depth;
     if (offset >= THREADS)
@@ -38,7 +41,39 @@ __device__ void scan_bits(int depth, u64 *result)
         result[idx + offset + 3] += result[idx + 3];
     }
     __syncthreads();
-    scan_bits(depth + 1, result);
+    scan_block(depth + 1, result);
+}
+
+__device__ short4 split(u64 *shared, short4 bits)
+{
+    const int idx = threadIdx.x * ELEM_PER_THREAD;
+    shared[idx + 0] = bits.x;
+    shared[idx + 1] = bits.y;
+    shared[idx + 2] = bits.z;
+    shared[idx + 3] = bits.w;
+    __syncthreads();
+    scan_block(1, shared);
+    __syncthreads();
+
+    short4 ptr;
+    ptr.w = shared[idx + 3] - bits.w;
+    ptr.z = shared[idx + 2] - bits.w - bits.z;
+    ptr.y = shared[idx + 1] - bits.w - bits.z - bits.y;
+    ptr.x = shared[idx + 0] - bits.w - bits.z - bits.y - bits.x;
+
+    __shared__ uint trues;
+    if (threadIdx.x == THREADS - 1)
+    {
+        trues = ptr.w + bits.w;
+    }
+    __syncthreads();
+
+    ptr.x = (bits.x) ? ptr.x : trues + idx + 0 - ptr.x;
+    ptr.y = (bits.y) ? ptr.y : trues + idx + 1 - ptr.y;
+    ptr.z = (bits.z) ? ptr.z : trues + idx + 2 - ptr.z;
+    ptr.w = (bits.w) ? ptr.w : trues + idx + 3 - ptr.w;
+
+    return ptr;
 }
 
 
@@ -61,34 +96,9 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
         bits.z = !((my_data.z >> bit) & 1);
         bits.w = !((my_data.w >> bit) & 1);
 
+        short4 ptr = split(shared, bits);
 
-        shared[idx + 0] = bits.x;
-        shared[idx + 1] = bits.y;
-        shared[idx + 2] = bits.z;
-        shared[idx + 3] = bits.w;
-        __syncthreads();
-        scan_bits(1, shared);
-        __syncthreads();
-
-        short4 ptr;
-        ptr.w = shared[idx + 3] - bits.w;
-        ptr.z = shared[idx + 2] - bits.w - bits.z;
-        ptr.y = shared[idx + 1] - bits.w - bits.z - bits.y;
-        ptr.x = shared[idx + 0] - bits.w - bits.z - bits.y - bits.x;
-
-        __shared__ uint trues;
-        if (lidx == THREADS - 1)
-        {
-            trues = ptr.w + bits.w;
-        }
-        __syncthreads();
-
-        int idx = lidx * ELEM_PER_THREAD;
-        ptr.x = (bits.x) ? ptr.x : trues + idx + 0 - ptr.x;
-        ptr.y = (bits.y) ? ptr.y : trues + idx + 1 - ptr.y;
-        ptr.z = (bits.z) ? ptr.z : trues + idx + 2 - ptr.z;
-        ptr.w = (bits.w) ? ptr.w : trues + idx + 3 - ptr.w;
-
+        /* bank issues? */
         shared[ptr.x] = my_data.x;
         shared[ptr.y] = my_data.y;
         shared[ptr.z] = my_data.z;
