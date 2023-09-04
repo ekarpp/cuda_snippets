@@ -1,2 +1,3 @@
 radix_sort_benchmark
+radix_sort_test
 *.o
