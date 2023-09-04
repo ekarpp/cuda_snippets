@@ -183,10 +183,17 @@ __global__ void compute_histograms(
     }
 }
 
-__global__ void scan_histograms(u32 *block_histograms, u32 *histogram, scan_status *status)
+__global__ void scan_histograms(
+    u32 *block_histograms,
+    u32 * histogram,
+    scan_status *status,
+    const int num_blocks,
+    const int bucket_size
+)
 {
+    __shared__ u32 result[ELEM_PER_BLOCK];
     __shared__ uint block_id;
-    const int lidx = threadIdx.x;
+    const int lidx = threadIdx.x * ELEM_PER_THREAD;
 
     if (lidx == 0)
     {
@@ -194,24 +201,51 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *histogram, scan_stat
     }
     __syncthreads();
 
+    const int gidx = block_id * ELEM_PER_BLOCK + lidx;
+    result[lidx + 0] = block_histograms[gidx + 0];
+    result[lidx + 1] = block_histograms[gidx + 1];
+    result[lidx + 2] = block_histograms[gidx + 2];
+    result[lidx + 3] = block_histograms[gidx + 3];
+
+    __syncthreads();
+    scan_block<u32>(1, result);
+    __syncthreads();
+
     __shared__ u32 previous_sum;
     if (lidx == THREADS - 1)
     {
         while (status->finished_blocks < block_id);
-        u32 local_sum = 0;
+        u32 local_sum = result[lidx + 3];
         previous_sum = status->sum;
         status->sum += local_sum;
         __threadfence();
         u32 finished_blocks = status->finished_blocks + 1;
         status->finished_blocks = finished_blocks;
     }
+    __syncthreads();
 
-    // reset status
-    if (lidx == 0 && block_id == 0)
+    block_histograms[gidx + 0] = result[lidx + 0] + previous_sum;
+    block_histograms[gidx + 1] = result[lidx + 1] + previous_sum;
+    block_histograms[gidx + 2] = result[lidx + 2] + previous_sum;
+    block_histograms[gidx + 3] = result[lidx + 3] + previous_sum;
+
+    __syncthreads();
+
+    /*
+     * reset status for next iterations of radix sort
+     * and write final histogram
+     */
+    if (lidx == 0 && block_id == num_blocks - 1)
     {
         status->sum = 0;
         status->blocks = 0;
         status->finished_blocks = 0;
+
+        for (int i = 0; i < RADIX_SIZE; i++)
+        {
+            int bucket_idx = (i + 1) * bucket_size - 1;
+            histogram[i] = block_histograms[bucket_idx];
+        }
     }
 }
 
@@ -274,8 +308,8 @@ int radix_sort(int n, u64* input) {
             ((u64_vec2 *) data_tmp, block_histograms, blocks2, start_bit);
         /* (3) prefix sum across blocks over the histograms */
         scan_histograms
-            <<<blocks1, THREADS>>>
-            (block_histograms, histogram_scan, status);
+            <<<blocks, THREADS>>>
+            (block_histograms, histogram_scan, status, blocks, blocks2);
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
             <<<blocks, THREADS>>>
