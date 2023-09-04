@@ -20,11 +20,19 @@ constexpr int RADIX = 4;
 constexpr int RADIX_SIZE = 1 << RADIX;
 constexpr int RADIX_MASK = RADIX_SIZE - 1;
 
+typedef struct
+{
+    u32 sum;
+    int blocks;
+    volatile u32 finished_blocks;
+} scan_status;
+
 /*
  * simple scan with O(n log n) work, can be optimized...
  * each thread handles 4 consecutive elements.
  */
-__device__ void scan_block(int depth, u64 *result)
+template <typename T>
+__device__ void scan_block(int depth, T *result)
 {
     int offset = 1 << depth;
     if (offset >= THREADS)
@@ -41,7 +49,7 @@ __device__ void scan_block(int depth, u64 *result)
         result[idx + offset + 3] += result[idx + 3];
     }
     __syncthreads();
-    scan_block(depth + 1, result);
+    scan_block<T>(depth + 1, result);
 }
 
 __device__ short4 split(u64 *shared, short4 bits)
@@ -52,7 +60,7 @@ __device__ short4 split(u64 *shared, short4 bits)
     shared[idx + 2] = bits.z;
     shared[idx + 3] = bits.w;
     __syncthreads();
-    scan_block(1, shared);
+    scan_block<u64>(1, shared);
     __syncthreads();
 
     short4 ptr;
@@ -175,9 +183,36 @@ __global__ void compute_histograms(
     }
 }
 
-__global__ void scan_histograms(u32 *block_histograms, u32 *histogram)
+__global__ void scan_histograms(u32 *block_histograms, u32 *histogram, scan_status *status)
 {
+    __shared__ uint block_id;
+    const int lidx = threadIdx.x;
 
+    if (lidx == 0)
+    {
+        block_id = atomicAdd(&status->blocks, 1);
+    }
+    __syncthreads();
+
+    __shared__ u32 previous_sum;
+    if (lidx == THREADS - 1)
+    {
+        while (status->finished_blocks < block_id);
+        u32 local_sum = 0;
+        previous_sum = status->sum;
+        status->sum += local_sum;
+        __threadfence();
+        u32 finished_blocks = status->finished_blocks + 1;
+        status->finished_blocks = finished_blocks;
+    }
+
+    // reset status
+    if (lidx == 0 && block_id == 0)
+    {
+        status->sum = 0;
+        status->blocks = 0;
+        status->finished_blocks = 0;
+    }
 }
 
 __global__ void reorder_data(const u64_vec *data_in, u64_vec *data_out)
@@ -214,6 +249,15 @@ int radix_sort(int n, u64* input) {
     u32 *histogram_scan = NULL;
     cudaMalloc((void **) &histogram_scan, blocks2 * RADIX_SIZE * sizeof(u32));
 
+    scan_status status_host;
+    status_host.sum = 0;
+    status_host.blocks = 0;
+    status_host.finished_blocks = 0;
+
+    scan_status *status = NULL;
+    cudaMalloc((void **) &status_host, sizeof(scan_status));
+    cudaMemcpy(status, &status_host, sizeof(scan_status), cudaMemcpyHostToDevice);
+
     int start_bit = 0;
     while (start_bit < BITS)
     {
@@ -231,7 +275,7 @@ int radix_sort(int n, u64* input) {
         /* (3) prefix sum across blocks over the histograms */
         scan_histograms
             <<<blocks1, THREADS>>>
-            (block_histograms, histogram_scan);
+            (block_histograms, histogram_scan, status);
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
             <<<blocks, THREADS>>>
