@@ -126,6 +126,7 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
 __global__ void compute_histograms(
     const u64_vec2 *data,
     u32 *block_histograms,
+    u32 *start_ptrs,
     const int num_blocks,
     const int start_bit
 )
@@ -164,32 +165,30 @@ __global__ void compute_histograms(
     __syncthreads();
 
     /* store in column major order */
-    const int hist_idx = num_blocks * lidx + blockIdx.x;
-    if (lidx == RADIX_SIZE - 1)
+    if (lidx < RADIX_SIZE)
     {
-        block_histograms[hist_idx] = (ptrs[lidx] != -1)
-            ? 2 * THREADS - ptrs[lidx]
-            : 0;
-    }
-    else if (lidx == 0)
-    {
-        block_histograms[hist_idx] = ptrs[lidx] + 1;
-    }
-    else if (lidx < RADIX_SIZE)
-    {
-        block_histograms[hist_idx] = (ptrs[lidx] != -1)
-            ? ptrs[lidx] - ptrs[lidx - 1]
-            : 0;
+        const int hist_idx = num_blocks * lidx + blockIdx.x;
+        start_ptrs[blockIdx.x * RADIX_SIZE + lidx] = ptrs[lidx];
+        if (lidx == RADIX_SIZE - 1)
+        {
+            block_histograms[hist_idx] = (ptrs[lidx] != -1)
+                ? 2 * THREADS - ptrs[lidx]
+                : 0;
+        }
+        else if (lidx == 0)
+        {
+            block_histograms[hist_idx] = ptrs[lidx] + 1;
+        }
+        else
+        {
+            block_histograms[hist_idx] = (ptrs[lidx] != -1)
+                ? ptrs[lidx] - ptrs[lidx - 1]
+                : 0;
+        }
     }
 }
 
-__global__ void scan_histograms(
-    u32 *block_histograms,
-    u32 * histogram,
-    scan_status *status,
-    const int num_blocks,
-    const int bucket_size
-)
+__global__ void scan_histograms(u32 *block_histograms, scan_status *status, const int num_blocks)
 {
     __shared__ u32 result[ELEM_PER_BLOCK];
     __shared__ uint block_id;
@@ -240,18 +239,40 @@ __global__ void scan_histograms(
         status->sum = 0;
         status->blocks = 0;
         status->finished_blocks = 0;
-
-        for (int i = 0; i < RADIX_SIZE; i++)
-        {
-            int bucket_idx = (i + 1) * bucket_size - 1;
-            histogram[i] = block_histograms[bucket_idx];
-        }
     }
 }
 
-__global__ void reorder_data(const u64_vec *data_in, u64_vec *data_out)
+__global__ void reorder_data(const u64_vec2 *data_in,
+                             u64 *data_out,
+                             u32 *block_histograms,
+                             u32 *start_ptrs,
+                             const int bucket_size,
+                             const int start_bit)
 {
+    __shared__ u32 global_ptrs[RADIX_SIZE];
+    __shared__ u32 local_ptrs[RADIX_SIZE];
 
+    const int lidx = threadIdx.x;
+    const int gidx = blockIdx.x * THREADS + lidx;
+
+    u64_vec2 my_data = data_in[gidx];
+    short2 my_radix;
+    my_radix.x = (my_data.x >> start_bit) & RADIX_MASK;
+    my_radix.y = (my_data.y >> start_bit) & RADIX_MASK;
+
+    if (lidx < 16)
+    {
+        global_ptrs[lidx] = block_histograms[lidx * bucket_size + blockIdx.x];
+        local_ptrs[lidx] = start_ptrs[blockIdx.x * RADIX_SIZE + lidx];
+    }
+    __syncthreads();
+
+    u32 my_offsets[2];
+    my_offsets[0] = global_ptrs[my_radix.x] + lidx - local_ptrs[my_radix.x];
+    my_offsets[1] = global_ptrs[my_radix.y] + lidx - local_ptrs[my_radix.y];
+
+    data_out[my_offsets[0]] = my_data.x;
+    data_out[my_offsets[1]] = my_data.y;
 }
 
 
@@ -280,8 +301,8 @@ int radix_sort(int n, u64* input) {
     u32 *block_histograms = NULL;
     cudaMalloc((void **) &block_histograms, blocks2 * RADIX_SIZE * sizeof(u32));
 
-    u32 *histogram_scan = NULL;
-    cudaMalloc((void **) &histogram_scan, blocks2 * RADIX_SIZE * sizeof(u32));
+    u32 *start_ptrs = NULL;
+    cudaMalloc((void **) &start_ptrs, blocks2 * RADIX_SIZE * sizeof(u32));
 
     scan_status status_host;
     status_host.sum = 0;
@@ -305,15 +326,16 @@ int radix_sort(int n, u64* input) {
         /* (2) write histogram for each block to global memory */
         compute_histograms
             <<<blocks2, THREADS>>>
-            ((u64_vec2 *) data_tmp, block_histograms, blocks2, start_bit);
+            ((u64_vec2 *) data_tmp, block_histograms, start_ptrs, blocks2, start_bit);
         /* (3) prefix sum across blocks over the histograms */
         scan_histograms
             <<<blocks, THREADS>>>
-            (block_histograms, histogram_scan, status, blocks, blocks2);
+            (block_histograms, status, blocks);
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
-            <<<blocks, THREADS>>>
-            ((u64_vec *) data_tmp, (u64_vec *) data);
+            <<<blocks2, THREADS>>>
+            ((u64_vec2 *) data_tmp, data, block_histograms, start_ptrs, blocks2, start_bit);
+
         start_bit += RADIX;
     }
 
@@ -322,7 +344,8 @@ int radix_sort(int n, u64* input) {
     cudaFree(data);
     cudaFree(data_tmp);
     cudaFree(block_histograms);
-    cudaFree(histogram_scan);
+    cudaFree(status);
+    cudaFree(start_ptrs);
 
     return 0;
 }
