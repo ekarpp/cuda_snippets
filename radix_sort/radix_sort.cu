@@ -111,7 +111,7 @@ __device__ void scan_block(T *data)
     }
 }
 
-__device__ short4 split(short *shared, short4 bits)
+__device__ int4 split(int *shared, int4 bits)
 {
     const int idx = threadIdx.x * ELEM_PER_THREAD;
     shared[idx + 0] = bits.x;
@@ -119,10 +119,10 @@ __device__ short4 split(short *shared, short4 bits)
     shared[idx + 2] = bits.z;
     shared[idx + 3] = bits.w;
     __syncthreads();
-    scan_block<short>(shared);
+    scan_block<int>(shared);
     __syncthreads();
 
-    short4 ptr;
+    int4 ptr;
     ptr.w = shared[idx + 3] - bits.w;
     ptr.z = shared[idx + 2] - bits.w - bits.z;
     ptr.y = shared[idx + 1] - bits.w - bits.z - bits.y;
@@ -147,7 +147,8 @@ __device__ short4 split(short *shared, short4 bits)
 __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int start_bit)
 {
     __shared__ u64 shared[ELEM_PER_BLOCK];
-    __shared__ short ptrs[ELEM_PER_BLOCK];
+    // how to get rid of ptrs?
+    __shared__ int ptrs[ELEM_PER_BLOCK];
 
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
@@ -158,13 +159,13 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
     for (int bit = start_bit; bit > start_bit - RADIX; bit++)
     {
         /* TODO: adjust for other vector lengths */
-        short4 bits;
+        int4 bits;
         bits.x = !((my_data.x >> bit) & 1);
         bits.y = !((my_data.y >> bit) & 1);
         bits.z = !((my_data.z >> bit) & 1);
         bits.w = !((my_data.w >> bit) & 1);
 
-        short4 ptr = split(ptrs, bits);
+        int4 ptr = split(ptrs, bits);
 
         /* bank issues? */
         ptrs[ptr.x] = my_data.x;
@@ -192,9 +193,9 @@ __global__ void compute_histograms(
 )
 {
     // latter value of pair from each thread
-    __shared__ short radix[THREADS];
+    __shared__ int radix[THREADS];
     // start indices for each radix
-    __shared__ short ptrs[RADIX_SIZE];
+    __shared__ int ptrs[RADIX_SIZE];
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
 
@@ -203,7 +204,7 @@ __global__ void compute_histograms(
      */
 
     u64_vec2 my_data = data[gidx];
-    short2 my_radix;
+    int2 my_radix;
     my_radix.x = (my_data.x >> start_bit) & RADIX_MASK;
     my_radix.y = (my_data.y >> start_bit) & RADIX_MASK;
     radix[lidx] = my_radix.y;
@@ -316,7 +317,7 @@ __global__ void reorder_data(const u64_vec2 *data_in,
     const int gidx = blockIdx.x * THREADS + lidx;
 
     u64_vec2 my_data = data_in[gidx];
-    short2 my_radix;
+    int2 my_radix;
     my_radix.x = (my_data.x >> start_bit) & RADIX_MASK;
     my_radix.y = (my_data.y >> start_bit) & RADIX_MASK;
 
