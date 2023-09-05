@@ -65,7 +65,7 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
 
     u64_vec my_data = data_in[gidx];
 
-    for (int bit = start_bit; bit > start_bit - RADIX; bit++)
+    for (int bit = start_bit; bit < start_bit + RADIX; bit++)
     {
         /* TODO: adjust for other vector lengths */
         int4 bits;
