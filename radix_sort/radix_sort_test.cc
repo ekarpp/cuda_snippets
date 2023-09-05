@@ -52,5 +52,6 @@ static void test(u64 len)
 int main()
 {
     test(1024);
+    test(1024 * 1024);
     return 0;
 }

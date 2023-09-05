@@ -4,13 +4,6 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-typedef struct
-{
-    u32 sum;
-    int blocks;
-    volatile u32 finished_blocks;
-} scan_status;
-
 void check_gpu_error(const char *fn)
 {
     cudaError_t err = cudaDeviceSynchronize();
@@ -20,7 +13,7 @@ void check_gpu_error(const char *fn)
     }
 }
 
-__device__ int4 split(int *shared, int4 bits)
+__device__ int4 split(int *shared, const int4 bits)
 {
     const int idx = threadIdx.x * ELEM_PER_THREAD;
     shared[idx + 0] = bits.x;
@@ -158,19 +151,13 @@ __global__ void compute_histograms(
     }
 }
 
-__global__ void scan_histograms(u32 *block_histograms, scan_status *status, const int num_blocks)
+template <bool add_total>
+__global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
 {
     __shared__ u32 result[ELEM_PER_BLOCK];
-    __shared__ uint block_id;
     const int lidx = threadIdx.x * ELEM_PER_THREAD;
+    const int gidx = blockIdx.x * ELEM_PER_BLOCK + lidx;
 
-    if (lidx == 0)
-    {
-        block_id = atomicAdd(&status->blocks, 1);
-    }
-    __syncthreads();
-
-    const int gidx = block_id * ELEM_PER_BLOCK + lidx;
     result[lidx + 0] = block_histograms[gidx + 0];
     result[lidx + 1] = block_histograms[gidx + 1];
     result[lidx + 2] = block_histograms[gidx + 2];
@@ -180,42 +167,42 @@ __global__ void scan_histograms(u32 *block_histograms, scan_status *status, cons
     scan::scan_block<u32>(result);
     __syncthreads();
 
-    __shared__ u32 previous_sum;
-    if (lidx == THREADS - 1)
+    block_histograms[gidx + 0] = result[lidx + 0];
+    block_histograms[gidx + 1] = result[lidx + 1];
+    block_histograms[gidx + 2] = result[lidx + 2];
+    block_histograms[gidx + 3] = result[lidx + 3];
+
+    if (add_total && lidx == THREADS - 1)
     {
-        while (status->finished_blocks < block_id);
-        u32 local_sum = result[lidx + 3];
-        previous_sum = status->sum;
-        status->sum += local_sum;
-        __threadfence();
-        u32 finished_blocks = status->finished_blocks + 1;
-        status->finished_blocks = finished_blocks;
+        scan_sums[blockIdx.x] = result[lidx + 3];
     }
+}
+
+__global__ void add_sums(const u32 *from, u32 *to)
+{
+    /* lazy... scan not exclusive.. */
+    if (blockIdx.x == 0)
+        return;
+    __shared__ u32 sum;
+    const int lidx = threadIdx.x * ELEM_PER_THREAD;
+    const int gidx = blockIdx.x * ELEM_PER_BLOCK + lidx;
+
+    if (lidx == 0)
+    {
+        sum = from[blockIdx.x - 1];
+    }
+
     __syncthreads();
 
-    block_histograms[gidx + 0] = result[lidx + 0] + previous_sum;
-    block_histograms[gidx + 1] = result[lidx + 1] + previous_sum;
-    block_histograms[gidx + 2] = result[lidx + 2] + previous_sum;
-    block_histograms[gidx + 3] = result[lidx + 3] + previous_sum;
-
-    __syncthreads();
-
-    /*
-     * reset status for next iterations of radix sort
-     * and write final histogram
-     */
-    if (lidx == 0 && block_id == num_blocks - 1)
-    {
-        status->sum = 0;
-        status->blocks = 0;
-        status->finished_blocks = 0;
-    }
+    #pragma unroll
+    for (int i = 0; i < ELEM_PER_THREAD; i++)
+        to[gidx + i] += sum;
 }
 
 __global__ void reorder_data(const u64_vec2 *data_in,
                              u64 *data_out,
-                             u32 *block_histograms,
-                             u32 *start_ptrs,
+                             const u32 *block_histograms,
+                             const u32 *start_ptrs,
                              const int bucket_size,
                              const int start_bit)
 {
@@ -250,62 +237,110 @@ inline int static divup(int a, int b) { return (a + b - 1) / b; }
 
 // https://www.cs.umd.edu/class/spring2021/cmsc714/readings/Satish-sorting.pdf
 int radix_sort(int n, u64* input) {
-    // partial blocks not implemented and overflow if too large
+    // partial blocks not implemented and overflow in scan if too large (can increase to u64)
     if (n % ELEM_PER_BLOCK != 0 || n >= 1 << 30)
     {
         return -1;
     }
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
-    // for histogram each thread takes two elements
-    const int blocks2 = divup(n, 2 * THREADS);
-    // for histogram scan each thread takes one element
-    const int blocks1 = divup(n, THREADS);
 
+    const int scan_depth = std::max(1, (int) std::ceil(std::log(n) / (10.0 * std::log(2.0)) - 1.0));
+
+    // in reorder and histogram creation each thread takes two elements
+    const int blocks2 = divup(n, 2 * THREADS);
+
+    /* main data array */
     u64 *data = NULL;
     cudaMalloc((void **) &data, n * sizeof(u64));
     cudaMemcpy(data, input, n * sizeof(u64), cudaMemcpyHostToDevice);
 
+    /* stores data where each block is sorted */
     u64 *data_tmp = NULL;
     cudaMalloc((void **) &data_tmp, n * sizeof(u64));
 
-    u32 *block_histograms = NULL;
-    cudaMalloc((void **) &block_histograms, blocks2 * RADIX_SIZE * sizeof(u32));
-
+    /* start index for each radix in each block */
     u32 *start_ptrs = NULL;
     cudaMalloc((void **) &start_ptrs, blocks2 * RADIX_SIZE * sizeof(u32));
 
-    scan_status status_host;
-    status_host.sum = 0;
-    status_host.blocks = 0;
-    status_host.finished_blocks = 0;
+    /* histogram of radixes from blocks in column major order */
+    u32 *block_histograms = NULL;
+    cudaMalloc((void **) &block_histograms, blocks2 * RADIX_SIZE * sizeof(u32));
 
-    scan_status *status = NULL;
-    cudaMalloc((void **) &status, sizeof(scan_status));
-    cudaMemcpy(status, &status_host, sizeof(scan_status), cudaMemcpyHostToDevice);
-    check_gpu_error("init");
+    /* sum of each block during histogram scan */
+    u32 *scan_sums[scan_depth];
+    int scan_sizes[scan_depth];
 
+    for (int i = 0; i < scan_depth; i++)
+    {
+        scan_sizes[i] = (i == 0) ? blocks : scan_sizes[i - 1];
+        scan_sizes[i] = divup(scan_sizes[i], ELEM_PER_BLOCK);
+        scan_sums[i] = NULL;
+        cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
+    }
+
+/*
+    scan_histograms
+        <<<blocks, THREADS>>>
+        ((u32 *) data, status, blocks);
+    check_gpu_error("scan_histograms");
+    cudaMemcpy(input, data, n * sizeof(u64), cudaMemcpyDeviceToHost);
+    return 0;
+*/
     int start_bit = 0;
     while (start_bit < BITS)
     {
         /*
          * (1) sort blocks by iterating 1-bit split.
-         * uses `ELEM_PER_BLOCK * sizeof(int)` of shared memory.
          */
         sort_block
-            <<<blocks, THREADS, WARPS_PER_BLOCK * sizeof(u64)>>>
+            <<<blocks, THREADS>>>
             ((u64_vec *) data, (u64_vec *) data_tmp, start_bit);
         check_gpu_error("sort_block");
+
         /* (2) write histogram for each block to global memory */
         compute_histograms
             <<<blocks2, THREADS>>>
             ((u64_vec2 *) data_tmp, block_histograms, start_ptrs, blocks2, start_bit);
         check_gpu_error("compute_histograms");
+
         /* (3) prefix sum across blocks over the histograms */
-        scan_histograms
-          <<<blocks, THREADS>>>
-          (block_histograms, status, blocks);
-        check_gpu_error("scan_histograms");
+        {
+            scan_histograms<true>
+                <<<blocks, THREADS>>>
+                (block_histograms, scan_sums[scan_depth - 1]);
+            check_gpu_error("scan_histograms<true>");
+
+            for (int i = 0; i < scan_depth - 1; i++)
+            {
+                scan_histograms<true>
+                    <<<scan_sizes[i], THREADS>>>
+                    (scan_sums[i], scan_sums[i+1]);
+                check_gpu_error("scan_histograms<true> in loop");
+            }
+
+            if (scan_sizes[scan_depth - 1] != 1)
+            {
+                std::cout << "something is wrong" << std::endl;
+            }
+
+            scan_histograms<false>
+                <<<1, THREADS>>>
+                (scan_sums[scan_depth - 1], NULL);
+            check_gpu_error("scan_histograms<false>");
+
+            for (int i = scan_depth - 1; i > 0; i--)
+            {
+                add_sums
+                    <<<scan_sizes[i - 1], THREADS>>>
+                    (scan_sums[i], scan_sums[i - 1]);
+            }
+
+            add_sums
+                <<<blocks, THREADS>>>
+                (scan_sums[0], block_histograms);
+        }
+
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
             <<<blocks2, THREADS>>>
@@ -320,8 +355,10 @@ int radix_sort(int n, u64* input) {
     cudaFree(data);
     cudaFree(data_tmp);
     cudaFree(block_histograms);
-    cudaFree(status);
     cudaFree(start_ptrs);
+
+    for (int i = 0; i < scan_depth; i++)
+        cudaFree(scan_sums[i]);
 
     return 0;
 }

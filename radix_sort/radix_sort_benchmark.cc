@@ -23,7 +23,11 @@ static void benchmark(u64 len, int iters)
         {
             for (uint i = 0; i < len; i++)
             {
-                std::cout << input[i] << " ";
+                printf("%.4lld ", input[i]);
+                if ((i+1)%4 == 0)
+                    std::cout << "| ";
+                if ((i+1)%32 == 0)
+                    std::cout << std::endl;
             }
         }
         std::cout << std::endl;
