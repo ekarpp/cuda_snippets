@@ -1,6 +1,6 @@
 #include "radix_sort.h"
 #include "constants.h"
-#include "scan.hu"
+#include "scan.h"
 #include <cuda_runtime.h>
 #include <iostream>
 
