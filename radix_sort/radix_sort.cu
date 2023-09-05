@@ -13,6 +13,7 @@ void check_gpu_error(const char *fn)
     }
 }
 
+/* 1-bit split */
 __device__ int4 split(int *shared, const int4 bits)
 {
     const int idx = threadIdx.x * ELEM_PER_THREAD;
@@ -45,7 +46,10 @@ __device__ int4 split(int *shared, const int4 bits)
     return ptr;
 }
 
-
+/*
+ * sort block-wise in data out according to RADIX-bits starting from start_bit (LSB).
+ * uses 1-bit splits RADIX times.
+ */
 __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int start_bit)
 {
     __shared__ u64 shared[ELEM_PER_BLOCK];
@@ -86,6 +90,10 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
     data_out[gidx] = my_data;
 }
 
+/*
+ * fill histogram by finding the start points of each radix in the sorted data block.
+ * store start indices for use later on.
+ */
 __global__ void compute_histograms(
     const u64_vec2 *data,
     u32 *block_histograms,
@@ -100,10 +108,6 @@ __global__ void compute_histograms(
     __shared__ int ptrs[RADIX_SIZE];
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
-
-    /*
-     * fill histogram by finding the start points of each radix in the sorted data block
-     */
 
     u64_vec2 my_data = data[gidx];
     int2 my_radix;
@@ -151,6 +155,9 @@ __global__ void compute_histograms(
     }
 }
 
+/*
+ * scan the block_histograms and add sum of each block to scan_sums
+ */
 template <bool add_total>
 __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
 {
@@ -178,6 +185,7 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
     }
 }
 
+/* */
 __global__ void add_sums(const u32 *from, u32 *to)
 {
     /* lazy... scan not exclusive.. */
@@ -199,6 +207,10 @@ __global__ void add_sums(const u32 *from, u32 *to)
         to[gidx + i] += sum;
 }
 
+/*
+ * given block sorted data, histogram and start index for each radix in the sorted data
+ * we reorder across blocks.
+ */
 __global__ void reorder_data(const u64_vec2 *data_in,
                              u64 *data_out,
                              const u32 *block_histograms,
@@ -304,13 +316,19 @@ int radix_sort(int n, u64* input) {
             ((u64_vec2 *) data_tmp, block_histograms, start_ptrs, blocks2, start_bit);
         check_gpu_error("compute_histograms");
 
-        /* (3) prefix sum across blocks over the histograms */
+        /*
+         * (3) prefix sum across blocks over the histograms.
+         * scan-then-propagate: first scan histogram blocks and gather total sum for each.
+         * iteratively scan over sum arrays and finally add offset sum to each histogram block.
+         */
         {
+            /* first scan the histograms and gather sum for each block */
             scan_histograms<true>
                 <<<blocks, THREADS>>>
                 (block_histograms, scan_sums[scan_depth - 1]);
             check_gpu_error("scan_histograms<true>");
 
+            /* iteratively scan the sum arrays if they are too large */
             for (int i = 0; i < scan_depth - 1; i++)
             {
                 scan_histograms<true>
@@ -324,11 +342,13 @@ int radix_sort(int n, u64* input) {
                 std::cout << "something is wrong" << std::endl;
             }
 
+            /* the final sum array is just a scan of one block */
             scan_histograms<false>
                 <<<1, THREADS>>>
                 (scan_sums[scan_depth - 1], NULL);
             check_gpu_error("scan_histograms<false>");
 
+            /* iteratively in reverse add the scan totals back */
             for (int i = scan_depth - 1; i > 0; i--)
             {
                 add_sums
@@ -336,6 +356,7 @@ int radix_sort(int n, u64* input) {
                     (scan_sums[i], scan_sums[i - 1]);
             }
 
+            /* and finally to the histogram array */
             add_sums
                 <<<blocks, THREADS>>>
                 (scan_sums[0], block_histograms);
