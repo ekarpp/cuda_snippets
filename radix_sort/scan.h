@@ -8,6 +8,9 @@ namespace scan
 {
     constexpr uint FULL_MASK = 0xFFFFFFFF;
 
+    /*
+     * scans at warp level then combines the results
+     */
     template <typename T>
     __device__ T scan_warp(T my_val)
     {
@@ -56,9 +59,11 @@ namespace scan
         return my_val;
     }
 
-/*
- * warp-scan algorithm. adds all elements of a thread together and performs a single warp-scan.
- */
+
+    /*
+     * warp-scan algorithm. adds all elements of a thread together and performs a single warp-scan.
+     * have to be aware of possible overflow for T.
+     */
     template <typename T>
     __device__ void scan_block(T *data)
     {
