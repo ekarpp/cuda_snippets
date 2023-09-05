@@ -1,27 +1,8 @@
 #include "radix_sort.h"
+#include "constants.h"
+#include "scan.hu"
 #include <cuda_runtime.h>
 #include <iostream>
-
-/* tunable */
-constexpr int THREADS = 256;
-// this should be 2 or 4, needs changes to code if we want 2
-constexpr int ELEM_PER_THREAD = 4;
-constexpr int WARP_SIZE = 32;
-constexpr int WARPS_PER_BLOCK = THREADS / WARP_SIZE;
-
-typedef ulonglong2 u64_vec2;
-/* TODO: adjust for other vector lengths */
-typedef ulonglong4 u64_vec;
-
-constexpr int ELEM_PER_BLOCK = THREADS * ELEM_PER_THREAD;
-// constexpr int WARP_SIZE = 32;
-
-/* tunable */
-constexpr int BITS = 64;
-constexpr int RADIX = 4;
-
-constexpr int RADIX_SIZE = 1 << RADIX;
-constexpr int RADIX_MASK = RADIX_SIZE - 1;
 
 typedef struct
 {
@@ -39,78 +20,6 @@ void check_gpu_error(const char *fn)
     }
 }
 
-template <typename T>
-__device__ T scan_warp(T my_val)
-{
-    __shared__ T warp_sums[WARPS_PER_BLOCK];
-
-    const int idx = threadIdx.x;
-    const int lane_id = threadIdx.x % WARP_SIZE;
-
-    for (int i = 1; i < WARP_SIZE; i*=2)
-    {
-        T neighbor_val = __shfl_up_sync(-1, my_val, i);
-        if (lane_id >= i)
-            my_val += neighbor_val;
-    }
-
-    if (lane_id == WARP_SIZE - 1)
-    {
-        warp_sums[idx / WARP_SIZE] = my_val;
-    }
-    __syncthreads();
-
-    if (idx < WARP_SIZE)
-    {
-        T sum = 0;
-        if (idx < WARPS_PER_BLOCK)
-            sum = warp_sums[idx];
-
-        for (int i = 1; i < WARP_SIZE; i *= 2)
-        {
-            T neighbor_val = __shfl_up_sync(-1, sum, i);
-            if (lane_id >= i)
-                sum += neighbor_val;
-        }
-
-        if (idx < WARPS_PER_BLOCK)
-            warp_sums[idx] = sum;
-    }
-
-    __syncthreads();
-
-    if (idx >= WARP_SIZE)
-        my_val += warp_sums[idx / WARP_SIZE - 1];
-
-    return my_val;
-}
-
-/*
- * warp-scan algorithm. adds all elements of a thread together and performs a single warp-scan.
- * HAVE TO DOUBLE CHECK FOR OVERFLOW. (histogram+split)
- */
-template <typename T>
-__device__ void scan_block(T *data)
-{
-    const int idx = threadIdx.x * ELEM_PER_THREAD;
-    T my_data[ELEM_PER_THREAD];
-    for (int i = 0; i < ELEM_PER_THREAD; i++)
-        my_data[i] = data[idx + i];
-
-    T my_sum = 0;
-    for (int i = 0; i < ELEM_PER_THREAD; i++)
-        my_sum += my_data[i];
-
-    my_sum = scan_warp<T>(my_sum);
-
-    data[idx + ELEM_PER_THREAD - 1] = my_sum - my_data[ELEM_PER_THREAD - 1];
-    for (int i = ELEM_PER_THREAD - 2; i >= 0; i--)
-    {
-        data[idx + i] = my_sum - my_data[i];
-        my_sum -= my_data[i];
-    }
-}
-
 __device__ int4 split(int *shared, int4 bits)
 {
     const int idx = threadIdx.x * ELEM_PER_THREAD;
@@ -119,7 +28,7 @@ __device__ int4 split(int *shared, int4 bits)
     shared[idx + 2] = bits.z;
     shared[idx + 3] = bits.w;
     __syncthreads();
-    scan_block<int>(shared);
+    scan::scan_block<int>(shared);
     __syncthreads();
 
     int4 ptr;
@@ -268,7 +177,7 @@ __global__ void scan_histograms(u32 *block_histograms, scan_status *status, cons
     result[lidx + 3] = block_histograms[gidx + 3];
 
     __syncthreads();
-    scan_block<u32>(result);
+    scan::scan_block<u32>(result);
     __syncthreads();
 
     __shared__ u32 previous_sum;

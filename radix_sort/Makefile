@@ -1,6 +1,6 @@
 NVCC=nvcc
 CXX=g++
-NVCCFLAGS=-G -g --std=c++14 -O3 -arch=sm_61 -dc
+NVCCFLAGS=-G -g --std=c++14 -O3 -arch=sm_61
 CXXFLAGS=-g -Wall -Wextra --std=c++14 -O3 -march=native
 
 all: radix_sort_benchmark radix_sort_test
