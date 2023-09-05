@@ -6,6 +6,8 @@
 
 namespace scan
 {
+    constexpr uint FULL_MASK = 0xFFFFFFFF;
+
     template <typename T>
     __device__ T scan_warp(T my_val)
     {
@@ -14,9 +16,10 @@ namespace scan
         const int idx = threadIdx.x;
         const int lane_id = threadIdx.x % WARP_SIZE;
 
+        #pragma unroll
         for (int i = 1; i < WARP_SIZE; i*=2)
         {
-            T neighbor_val = __shfl_up_sync(-1, my_val, i);
+            T neighbor_val = __shfl_up_sync(FULL_MASK, my_val, i);
             if (lane_id >= i)
                 my_val += neighbor_val;
         }
@@ -33,9 +36,10 @@ namespace scan
             if (idx < WARPS_PER_BLOCK)
                 sum = warp_sums[idx];
 
+            #pragma unroll
             for (int i = 1; i < WARP_SIZE; i *= 2)
             {
-                T neighbor_val = __shfl_up_sync(-1, sum, i);
+                T neighbor_val = __shfl_up_sync(FULL_MASK, sum, i);
                 if (lane_id >= i)
                     sum += neighbor_val;
             }
@@ -59,17 +63,21 @@ namespace scan
     __device__ void scan_block(T *data)
     {
         const int idx = threadIdx.x * ELEM_PER_THREAD;
+
         T my_data[ELEM_PER_THREAD];
+        #pragma unroll
         for (int i = 0; i < ELEM_PER_THREAD; i++)
             my_data[i] = data[idx + i];
 
         T my_sum = 0;
+        #pragma unroll
         for (int i = 0; i < ELEM_PER_THREAD; i++)
             my_sum += my_data[i];
 
         my_sum = scan_warp<T>(my_sum);
 
         data[idx + ELEM_PER_THREAD - 1] = my_sum - my_data[ELEM_PER_THREAD - 1];
+        #pragma unroll
         for (int i = ELEM_PER_THREAD - 2; i >= 0; i--)
         {
             data[idx + i] = my_sum - my_data[i];
