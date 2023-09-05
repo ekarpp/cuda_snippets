@@ -6,6 +6,8 @@
 constexpr int THREADS = 256;
 // this should be 2 or 4, needs changes to code if we want 2
 constexpr int ELEM_PER_THREAD = 4;
+constexpr int WARP_SIZE = 32;
+constexpr int WARPS_PER_BLOCK = THREADS / WARP_SIZE;
 
 typedef ulonglong2 u64_vec2;
 /* TODO: adjust for other vector lengths */
@@ -37,32 +39,79 @@ void check_gpu_error(const char *fn)
     }
 }
 
-/*
- * simple scan with O(n log n) work, can be optimized...
- * each thread handles 4 consecutive elements.
- */
 template <typename T>
-__device__ void scan_block(int depth, T *result)
+__device__ T scan_warp(T my_val)
 {
-    int offset = 1 << depth;
-    if (offset >= THREADS)
+    __shared__ T warp_sums[WARPS_PER_BLOCK];
+
+    const int idx = threadIdx.x;
+    const int lane_id = threadIdx.x % WARP_SIZE;
+
+    for (int i = 1; i < WARP_SIZE; i*=2)
     {
-        return;
+        T neighbor_val = __shfl_up_sync(-1, my_val, i);
+        if (lane_id >= i)
+            my_val += neighbor_val;
     }
 
-    int idx = threadIdx.x * ELEM_PER_THREAD;
-    if (offset + idx < THREADS)
+    if (lane_id == WARP_SIZE - 1)
     {
-        result[idx + offset + 0] += result[idx + 0];
-        result[idx + offset + 1] += result[idx + 1];
-        result[idx + offset + 2] += result[idx + 2];
-        result[idx + offset + 3] += result[idx + 3];
+        warp_sums[idx / WARP_SIZE] = my_val;
     }
     __syncthreads();
-    scan_block<T>(depth + 1, result);
+
+    if (idx < WARP_SIZE)
+    {
+        T sum = 0;
+        if (idx < WARPS_PER_BLOCK)
+            sum = warp_sums[idx];
+
+        for (int i = 1; i < WARP_SIZE; i *= 2)
+        {
+            T neighbor_val = __shfl_up_sync(-1, sum, i);
+            if (lane_id >= i)
+                sum += neighbor_val;
+        }
+
+        if (idx < WARPS_PER_BLOCK)
+            warp_sums[idx] = sum;
+    }
+
+    __syncthreads();
+
+    if (idx >= WARP_SIZE)
+        my_val += warp_sums[idx / WARP_SIZE - 1];
+
+    return my_val;
 }
 
-__device__ short4 split(u64 *shared, short4 bits)
+/*
+ * warp-scan algorithm. adds all elements of a thread together and performs a single warp-scan.
+ * HAVE TO DOUBLE CHECK FOR OVERFLOW. (histogram+split)
+ */
+template <typename T>
+__device__ void scan_block(T *data)
+{
+    const int idx = threadIdx.x * ELEM_PER_THREAD;
+    T my_data[ELEM_PER_THREAD];
+    for (int i = 0; i < ELEM_PER_THREAD; i++)
+        my_data[i] = data[idx + i];
+
+    T my_sum = 0;
+    for (int i = 0; i < ELEM_PER_THREAD; i++)
+        my_sum += my_data[i];
+
+    my_sum = scan_warp<T>(my_sum);
+
+    data[idx + ELEM_PER_THREAD - 1] = my_sum - my_data[ELEM_PER_THREAD - 1];
+    for (int i = ELEM_PER_THREAD - 2; i >= 0; i--)
+    {
+        data[idx + i] = my_sum - my_data[i];
+        my_sum -= my_data[i];
+    }
+}
+
+__device__ short4 split(short *shared, short4 bits)
 {
     const int idx = threadIdx.x * ELEM_PER_THREAD;
     shared[idx + 0] = bits.x;
@@ -70,7 +119,7 @@ __device__ short4 split(u64 *shared, short4 bits)
     shared[idx + 2] = bits.z;
     shared[idx + 3] = bits.w;
     __syncthreads();
-    scan_block<u64>(1, shared);
+    scan_block<short>(shared);
     __syncthreads();
 
     short4 ptr;
@@ -97,7 +146,8 @@ __device__ short4 split(u64 *shared, short4 bits)
 
 __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int start_bit)
 {
-    extern __shared__ u64 shared[];
+    __shared__ u64 shared[ELEM_PER_BLOCK];
+    __shared__ short ptrs[ELEM_PER_BLOCK];
 
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
@@ -114,13 +164,13 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
         bits.z = !((my_data.z >> bit) & 1);
         bits.w = !((my_data.w >> bit) & 1);
 
-        short4 ptr = split(shared, bits);
+        short4 ptr = split(ptrs, bits);
 
         /* bank issues? */
-        shared[ptr.x] = my_data.x;
-        shared[ptr.y] = my_data.y;
-        shared[ptr.z] = my_data.z;
-        shared[ptr.w] = my_data.w;
+        ptrs[ptr.x] = my_data.x;
+        ptrs[ptr.y] = my_data.y;
+        ptrs[ptr.z] = my_data.z;
+        ptrs[ptr.w] = my_data.w;
         __syncthreads();
 
         my_data.x = shared[idx + 0];
@@ -217,7 +267,7 @@ __global__ void scan_histograms(u32 *block_histograms, scan_status *status, cons
     result[lidx + 3] = block_histograms[gidx + 3];
 
     __syncthreads();
-    scan_block<u32>(1, result);
+    scan_block<u32>(result);
     __syncthreads();
 
     __shared__ u32 previous_sum;
@@ -320,8 +370,9 @@ int radix_sort(int n, u64* input) {
     status_host.finished_blocks = 0;
 
     scan_status *status = NULL;
-    cudaMalloc((void **) &status_host, sizeof(scan_status));
+    cudaMalloc((void **) &status, sizeof(scan_status));
     cudaMemcpy(status, &status_host, sizeof(scan_status), cudaMemcpyHostToDevice);
+    check_gpu_error("init");
 
     int start_bit = 0;
     while (start_bit < BITS)
@@ -331,7 +382,7 @@ int radix_sort(int n, u64* input) {
          * uses `ELEM_PER_BLOCK * sizeof(int)` of shared memory.
          */
         sort_block
-            <<<blocks, THREADS, ELEM_PER_BLOCK * sizeof(u64)>>>
+            <<<blocks, THREADS, WARPS_PER_BLOCK * sizeof(u64)>>>
             ((u64_vec *) data, (u64_vec *) data_tmp, start_bit);
         check_gpu_error("sort_block");
         /* (2) write histogram for each block to global memory */
@@ -341,8 +392,8 @@ int radix_sort(int n, u64* input) {
         check_gpu_error("compute_histograms");
         /* (3) prefix sum across blocks over the histograms */
         scan_histograms
-            <<<blocks, THREADS>>>
-            (block_histograms, status, blocks);
+          <<<blocks, THREADS>>>
+          (block_histograms, status, blocks);
         check_gpu_error("scan_histograms");
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
