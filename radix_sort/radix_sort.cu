@@ -1,5 +1,6 @@
 #include "radix_sort.h"
 #include <cuda_runtime.h>
+#include <iostream>
 
 /* tunable */
 constexpr int THREADS = 256;
@@ -26,6 +27,15 @@ typedef struct
     int blocks;
     volatile u32 finished_blocks;
 } scan_status;
+
+void check_gpu_error(const char *fn)
+{
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cout << "CUDA error in \"" << fn << "\": " << cudaGetErrorString(err) << std::endl;
+        exit(-1);
+    }
+}
 
 /*
  * simple scan with O(n log n) work, can be optimized...
@@ -323,18 +333,22 @@ int radix_sort(int n, u64* input) {
         sort_block
             <<<blocks, THREADS, ELEM_PER_BLOCK * sizeof(u64)>>>
             ((u64_vec *) data, (u64_vec *) data_tmp, start_bit);
+        check_gpu_error("sort_block");
         /* (2) write histogram for each block to global memory */
         compute_histograms
             <<<blocks2, THREADS>>>
             ((u64_vec2 *) data_tmp, block_histograms, start_ptrs, blocks2, start_bit);
+        check_gpu_error("compute_histograms");
         /* (3) prefix sum across blocks over the histograms */
         scan_histograms
             <<<blocks, THREADS>>>
             (block_histograms, status, blocks);
+        check_gpu_error("scan_histograms");
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
             <<<blocks2, THREADS>>>
             ((u64_vec2 *) data_tmp, data, block_histograms, start_ptrs, blocks2, start_bit);
+        check_gpu_error("reorder_data");
 
         start_bit += RADIX;
     }
