@@ -13,7 +13,7 @@ bool is_sorted(std::vector<u64> vec)
 {
     u64 prev = vec[0];
 
-    for (int i = 1; i < vec.size(); i++)
+    for (uint i = 1; i < vec.size(); i++)
     {
         if (vec[i] > prev)
         {
@@ -31,7 +31,7 @@ static void test(u64 len)
 {
     std::vector<u64> input(len);
 
-    for (int i = 0; i < len; i++)
+    for (uint i = 0; i < len; i++)
     {
         input[i] = random_data();
     }
@@ -49,7 +49,7 @@ static void test(u64 len)
     std::cout << len << std::endl;
 }
 
-int main(int argc, char** argv)
+int main()
 {
     test(1024);
     return 0;

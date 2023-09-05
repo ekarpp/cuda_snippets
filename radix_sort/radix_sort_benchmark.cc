@@ -6,7 +6,7 @@
 
 u64 random_data()
 {
-    return ((u64) rand() << 32) | rand();
+    return 1;//((u64) rand() << 32) | rand();
 }
 
 static void benchmark(u64 len, int iters)
@@ -14,12 +14,19 @@ static void benchmark(u64 len, int iters)
     std::vector<u64> input(len);
 
     for (int iter = 0; iter < iters; ++iter) {
-        for (int i = 0; i < len; i++)
+        for (uint i = 0; i < len; i++)
         {
-            input[i] = random_data();
+            input[i] = random_data() % 32;
         }
 
-        radix_sort(len, input.data());
+        if (radix_sort(len, input.data()) == 0)
+        {
+            for (uint i = 0; i < len; i++)
+            {
+                std::cout << input[i] << " ";
+            }
+        }
+        std::cout << std::endl;
     }
 }
 
