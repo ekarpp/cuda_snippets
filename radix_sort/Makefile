@@ -14,6 +14,7 @@ radix_sort_benchmark: radix_sort.o radix_sort_benchmark.o
 radix_sort_test: radix_sort.o radix_sort_test.o
 	$(NVCC) $^ -o $@
 
+radix_sort.o: radix_sort.cu scan.h
 
 %.o: %.cu
 	$(NVCC) $(NVCCFLAGS) -o $@ -c $<
