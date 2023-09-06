@@ -10,7 +10,7 @@ namespace reduce
     constexpr uint FULL_MASK = 0xFFFFFFFF;
 
     template <typename T>
-    __device__ T reduce(T my_val)
+    __device__ T reduce_block(T my_val)
     {
         __shared__ T warp_reduces[WARPS_PER_BLOCK];
 

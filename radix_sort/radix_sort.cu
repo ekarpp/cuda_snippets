@@ -126,7 +126,7 @@ __global__ void compute_histograms(
 
     #pragma unroll
     for (int i = 0; i < RADIX_SIZE; i++)
-        histogram[i] = reduce::reduce<int>(histogram[i]);
+        histogram[i] = reduce::reduce_block<int>(histogram[i]);
 
     /* store in column major order */
     if (lidx < RADIX_SIZE)

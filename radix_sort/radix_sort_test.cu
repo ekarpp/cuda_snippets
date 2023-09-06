@@ -165,11 +165,55 @@ static void test_sort_block()
     std::cout << "OK" << std::endl;
 }
 
+static void test_create_histogram()
+{
+    std::cout << "Testing create histogram...";
+    const int blocks = ELEM_PER_BLOCK;
+
+    std::vector<u64> data = random_u64(blocks * blocks);
+    for (int i = 0; i < data.size(); i++)
+        data[i] &= 0xF;
+
+    u64 *gpu = NULL;
+    cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u64));
+    cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u64), cudaMemcpyHostToDevice);
+
+    u32 *grams = NULL;
+    cudaMalloc((void **) &grams, blocks * RADIX_SIZE * sizeof(u32));
+
+    compute_histograms
+        <<<blocks, THREADS>>>
+        ((u64_vec *) gpu, grams, NULL, blocks, 0);
+
+    std::vector<u32> out(blocks * RADIX_SIZE);
+    cudaMemcpy(out.data(), grams, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
+
+    for (int i = 0; i < blocks; i++)
+    {
+        std::vector<int> local(RADIX_SIZE, 0);
+
+        for (int j = 0; j < ELEM_PER_BLOCK; j++)
+            local[data[i * blocks + j]]++;
+
+        for (int j = 0; j < RADIX_SIZE; j++)
+        {
+            if (local[j] != out[j * blocks + i])
+            {
+                std::cout << "FAIL" << std::endl;
+                return;
+            }
+        }
+    }
+
+    std::cout << "OK" << std::endl;
+}
+
 int main()
 {
     test_sort_block();
     test_local_scan();
     test_global_scan();
+    test_create_histogram();
     test_sort(1024);
     test_sort(1024 * 1024);
     return 0;
