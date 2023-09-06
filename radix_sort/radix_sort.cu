@@ -1,6 +1,7 @@
 #include "radix_sort.h"
 #include "constants.h"
 #include "scan.h"
+#include "reduce.h"
 #include <cuda_runtime.h>
 #include <iostream>
 
@@ -95,63 +96,43 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
  * store start indices for use later on.
  */
 __global__ void compute_histograms(
-    const u64_vec2 *data,
+    const u64_vec *data,
     u32 *block_histograms,
     u32 *start_ptrs,
     const int num_blocks,
     const int start_bit
 )
 {
-    // latter value of pair from each thread
-    __shared__ int radix[THREADS];
-    // start indices for each radix
-    __shared__ int ptrs[RADIX_SIZE];
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
 
-    u64_vec2 my_data = data[gidx];
-    int2 my_radix;
+    u64_vec my_data = data[gidx];
+    int4 my_radix;
     my_radix.x = (my_data.x >> start_bit) & RADIX_MASK;
     my_radix.y = (my_data.y >> start_bit) & RADIX_MASK;
-    radix[lidx] = my_radix.y;
+    my_radix.z = (my_data.z >> start_bit) & RADIX_MASK;
+    my_radix.w = (my_data.w >> start_bit) & RADIX_MASK;
 
-    if (lidx < RADIX_SIZE)
-    {
-        ptrs[lidx] = -1;
-    }
-    __syncthreads();
+    int histogram[RADIX_SIZE];
 
-    if (lidx > 0 && my_radix.x != radix[lidx - 1])
-    {
-        ptrs[my_radix.x] = 2 * lidx;
-    }
-    if (my_radix.x != my_radix.y)
-    {
-        ptrs[my_radix.y] = 2 * lidx + 1;
-    }
-    __syncthreads();
+    #pragma unroll
+    for (int i = 0; i < RADIX_SIZE; i++)
+        histogram[i] = 0;
+
+    histogram[my_radix.x]++;
+    histogram[my_radix.y]++;
+    histogram[my_radix.z]++;
+    histogram[my_radix.w]++;
+
+    #pragma unroll
+    for (int i = 0; i < RADIX_SIZE; i++)
+        histogram[i] = reduce::reduce<int>(histogram[i]);
 
     /* store in column major order */
     if (lidx < RADIX_SIZE)
     {
         const int hist_idx = num_blocks * lidx + blockIdx.x;
-        start_ptrs[blockIdx.x * RADIX_SIZE + lidx] = ptrs[lidx];
-        if (lidx == RADIX_SIZE - 1)
-        {
-            block_histograms[hist_idx] = (ptrs[lidx] != -1)
-                ? 2 * THREADS - ptrs[lidx]
-                : 0;
-        }
-        else if (lidx == 0)
-        {
-            block_histograms[hist_idx] = ptrs[lidx] + 1;
-        }
-        else
-        {
-            block_histograms[hist_idx] = (ptrs[lidx] != -1)
-                ? ptrs[lidx] - ptrs[lidx - 1]
-                : 0;
-        }
+        block_histograms[hist_idx] = histogram[lidx];
     }
 }
 
@@ -294,8 +275,8 @@ __global__ void reorder_data(const u64_vec2 *data_in,
     __syncthreads();
 
     u32 my_offsets[2];
-    my_offsets[0] = global_ptrs[my_radix.x] + lidx - local_ptrs[my_radix.x];
-    my_offsets[1] = global_ptrs[my_radix.y] + lidx - local_ptrs[my_radix.y];
+    my_offsets[0] = global_ptrs[my_radix.x] + lidx;// - local_ptrs[my_radix.x];
+    my_offsets[1] = global_ptrs[my_radix.y] + lidx;// - local_ptrs[my_radix.y];
 
     data_out[my_offsets[0]] = my_data.x;
     data_out[my_offsets[1]] = my_data.y;
@@ -361,8 +342,8 @@ int radix_sort(int n, u64* input) {
 
         /* (2) write histogram for each block to global memory */
         compute_histograms
-            <<<blocks2, THREADS>>>
-            ((u64_vec2 *) data_tmp, block_histograms, start_ptrs, blocks2, start_bit);
+            <<<blocks, THREADS>>>
+            ((u64_vec *) data_tmp, block_histograms, start_ptrs, blocks, start_bit);
         check_gpu_error("compute_histograms");
 
         /* (3) prefix sum across blocks over the histograms. */
