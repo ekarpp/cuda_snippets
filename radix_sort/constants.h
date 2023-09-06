@@ -8,10 +8,6 @@ constexpr int ELEM_PER_THREAD = 4;
 constexpr int WARP_SIZE = 32;
 constexpr int WARPS_PER_BLOCK = THREADS / WARP_SIZE;
 
-typedef ulonglong2 u64_vec2;
-/* TODO: adjust for other vector lengths */
-typedef ulonglong4 u64_vec;
-
 constexpr int ELEM_PER_BLOCK = THREADS * ELEM_PER_THREAD;
 // constexpr int WARP_SIZE = 32;
 
