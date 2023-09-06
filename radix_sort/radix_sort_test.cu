@@ -93,9 +93,48 @@ static void test_local_scan()
     std::cout << "OK" << std::endl;
 }
 
+static void test_global_scan()
+{
+    std::cout << "Testing global scan... ";
+    const int blocks = ELEM_PER_BLOCK;
+    const int scan_depth = 2;
+    std::vector<u32> data = random_u32(blocks * blocks);
+    int scan_sizes[2];
+    scan_sizes[0] = blocks;
+    scan_sizes[1] = 1;
+
+    u32 *gpu = NULL;
+    cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u32));
+    cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u32), cudaMemcpyHostToDevice);
+
+    u32 *scan_sums[2];
+    cudaMalloc((void **) &scan_sums[0], blocks * sizeof(u32));
+    cudaMalloc((void **) &scan_sums[1], sizeof(u32));
+
+    global_scan(gpu, scan_sums, scan_sizes, scan_depth, blocks);
+
+    std::vector<u32> out(blocks * blocks);
+    cudaMemcpy(out.data(), gpu, blocks * blocks * sizeof(u32), cudaMemcpyDeviceToHost);
+
+    u32 sum = 0;
+
+    for (uint i = 0; i < data.size(); i++)
+    {
+        if (sum != out[i])
+        {
+            std::cout << "FAIL at " << i << "/" << data.size() << std::endl;
+            return;
+        }
+        sum += data[i];
+    }
+
+    std::cout << "OK" << std::endl;
+}
+
 int main()
 {
     test_local_scan();
+    test_global_scan();
     test_sort(1024);
     return 0;
 }

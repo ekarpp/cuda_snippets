@@ -205,6 +205,58 @@ __global__ void add_sums(const u32 *from, u32 *to)
         to[gidx + i] += sum;
 }
 
+
+/*
+ * scan-then-propagate: first scan histogram blocks and gather total sum for each.
+ * iteratively scan over sum arrays and finally add offset sum to each histogram block.
+ */
+void global_scan(u32 *block_histograms,
+                 u32 **scan_sums,
+                 const int *scan_sizes,
+                 const int scan_depth,
+                 const int blocks)
+{
+    /* first scan the histograms and gather sum for each block */
+    scan_histograms<true>
+        <<<blocks, THREADS>>>
+        (block_histograms, scan_sums[scan_depth - 1]);
+    check_gpu_error("scan_histograms<true>");
+
+    /* iteratively scan the sum arrays if they are too large */
+    for (int i = 0; i < scan_depth - 1; i++)
+    {
+        scan_histograms<true>
+            <<<scan_sizes[i], THREADS>>>
+            (scan_sums[i], scan_sums[i+1]);
+        check_gpu_error("scan_histograms<true> in loop");
+    }
+
+    if (scan_sizes[scan_depth - 1] != 1)
+    {
+        std::cout << "something is wrong" << std::endl;
+    }
+
+    /* the final sum array is just a scan of one block */
+    scan_histograms<false>
+        <<<1, THREADS>>>
+        (scan_sums[scan_depth - 1], NULL);
+    check_gpu_error("scan_histograms<false>");
+
+    /* iteratively in reverse add the scan totals back */
+    for (int i = scan_depth - 1; i > 0; i--)
+    {
+        add_sums
+            <<<scan_sizes[i - 1], THREADS>>>
+            (scan_sums[i], scan_sums[i - 1]);
+    }
+
+    /* and finally to the histogram array */
+    add_sums
+        <<<blocks, THREADS>>>
+        (scan_sums[0], block_histograms);
+
+}
+
 /*
  * given block sorted data, histogram and start index for each radix in the sorted data
  * we reorder across blocks.
@@ -306,51 +358,8 @@ int radix_sort(int n, u64* input) {
             ((u64_vec2 *) data_tmp, block_histograms, start_ptrs, blocks2, start_bit);
         check_gpu_error("compute_histograms");
 
-        /*
-         * (3) prefix sum across blocks over the histograms.
-         * scan-then-propagate: first scan histogram blocks and gather total sum for each.
-         * iteratively scan over sum arrays and finally add offset sum to each histogram block.
-         */
-        {
-            /* first scan the histograms and gather sum for each block */
-            scan_histograms<true>
-                <<<blocks, THREADS>>>
-                (block_histograms, scan_sums[scan_depth - 1]);
-            check_gpu_error("scan_histograms<true>");
-
-            /* iteratively scan the sum arrays if they are too large */
-            for (int i = 0; i < scan_depth - 1; i++)
-            {
-                scan_histograms<true>
-                    <<<scan_sizes[i], THREADS>>>
-                    (scan_sums[i], scan_sums[i+1]);
-                check_gpu_error("scan_histograms<true> in loop");
-            }
-
-            if (scan_sizes[scan_depth - 1] != 1)
-            {
-                std::cout << "something is wrong" << std::endl;
-            }
-
-            /* the final sum array is just a scan of one block */
-            scan_histograms<false>
-                <<<1, THREADS>>>
-                (scan_sums[scan_depth - 1], NULL);
-            check_gpu_error("scan_histograms<false>");
-
-            /* iteratively in reverse add the scan totals back */
-            for (int i = scan_depth - 1; i > 0; i--)
-            {
-                add_sums
-                    <<<scan_sizes[i - 1], THREADS>>>
-                    (scan_sums[i], scan_sums[i - 1]);
-            }
-
-            /* and finally to the histogram array */
-            add_sums
-                <<<blocks, THREADS>>>
-                (scan_sums[0], block_histograms);
-        }
+        /* (3) prefix sum across blocks over the histograms. */
+        global_scan(block_histograms, scan_sums, scan_sizes, scan_depth, blocks);
 
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
