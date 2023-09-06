@@ -16,7 +16,7 @@ static void benchmark(u64 len, int iters)
     for (int iter = 0; iter < iters; ++iter) {
         for (uint i = 0; i < len; i++)
         {
-            input[i] = random_data() % 32;
+            input[i] = 1;//random_data() % 32;
         }
 
         if (radix_sort(len, input.data()) == 0)

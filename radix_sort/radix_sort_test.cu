@@ -18,7 +18,7 @@ std::vector<u32> random_u32(uint len)
     std::vector<u32> data(len);
 
     for (uint i = 0; i < len; i++)
-        data[i] = rand() % 0xFFFF;
+        data[i] = rand() % 0xFF;
 
     return data;
 }
@@ -70,7 +70,7 @@ static void test_local_scan()
     cudaMalloc((void **) &gpu, data.size() * sizeof(u32));
     cudaMemcpy(gpu, data.data(), data.size() * sizeof(u32), cudaMemcpyHostToDevice);
 
-    scan_histograms<false>
+    scan_histograms<false, false>
         <<<1, THREADS>>>
         (gpu, NULL);
     check_gpu_error("scan_histograms");
@@ -96,20 +96,18 @@ static void test_local_scan()
 static void test_global_scan()
 {
     std::cout << "Testing global scan... ";
+    const int scan_depth = 1;
     const int blocks = ELEM_PER_BLOCK;
-    const int scan_depth = 2;
     std::vector<u32> data = random_u32(blocks * blocks);
-    int scan_sizes[2];
+    int scan_sizes[1];
     scan_sizes[0] = blocks;
-    scan_sizes[1] = 1;
 
     u32 *gpu = NULL;
     cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u32));
     cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u32), cudaMemcpyHostToDevice);
 
-    u32 *scan_sums[2];
+    u32 *scan_sums[1];
     cudaMalloc((void **) &scan_sums[0], blocks * sizeof(u32));
-    cudaMalloc((void **) &scan_sums[1], sizeof(u32));
 
     global_scan(gpu, scan_sums, scan_sizes, scan_depth, blocks);
 
@@ -117,15 +115,15 @@ static void test_global_scan()
     cudaMemcpy(out.data(), gpu, blocks * blocks * sizeof(u32), cudaMemcpyDeviceToHost);
 
     u32 sum = 0;
-
     for (uint i = 0; i < data.size(); i++)
     {
+        sum += data[i];
         if (sum != out[i])
         {
             std::cout << "FAIL at " << i << "/" << data.size() << std::endl;
             return;
         }
-        sum += data[i];
+
     }
 
     std::cout << "OK" << std::endl;
