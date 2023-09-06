@@ -22,15 +22,14 @@ __device__ int4 split(int *shared, const int4 bits)
     shared[idx + 2] = bits.z;
     shared[idx + 3] = bits.w;
     __syncthreads();
-    scan::scan_block<int, true>(shared);
+    scan::scan_block<int, false>(shared);
     __syncthreads();
 
-    // make scan exclusive here?
     int4 ptr;
-    ptr.w = shared[idx + 3] - bits.w;
-    ptr.z = shared[idx + 2] - bits.w - bits.z;
-    ptr.y = shared[idx + 1] - bits.w - bits.z - bits.y;
-    ptr.x = shared[idx + 0] - bits.w - bits.z - bits.y - bits.x;
+    ptr.x = shared[idx + 0];
+    ptr.y = shared[idx + 1];
+    ptr.z = shared[idx + 2];
+    ptr.w = shared[idx + 3];
 
     __shared__ uint trues;
     if (threadIdx.x == THREADS - 1)
