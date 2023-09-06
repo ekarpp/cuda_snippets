@@ -64,7 +64,7 @@ namespace scan
      * warp-scan algorithm. adds all elements of a thread together and performs a single warp-scan.
      * have to be aware of possible overflow for T.
      */
-    template <typename T>
+    template <typename T, bool inclusive>
     __device__ void scan_block(T *data)
     {
         const int idx = threadIdx.x * ELEM_PER_THREAD;
@@ -81,12 +81,25 @@ namespace scan
 
         my_sum = scan_warp<T>(my_sum);
 
-        data[idx + ELEM_PER_THREAD - 1] = my_sum - my_data[ELEM_PER_THREAD - 1];
-        #pragma unroll
-        for (int i = ELEM_PER_THREAD - 2; i >= 0; i--)
+        if (inclusive)
         {
-            data[idx + i] = my_sum - my_data[i];
-            my_sum -= my_data[i];
+            data[idx + ELEM_PER_THREAD - 1] = my_sum;
+            #pragma unroll
+            for (int i = ELEM_PER_THREAD - 2; i >= 0; i--)
+            {
+                data[idx + i] = my_sum - my_data[i + 1];
+                my_sum -= my_data[i + 1];
+            }
+
+        }
+        else
+        {
+            #pragma unroll
+            for (int i = ELEM_PER_THREAD - 1; i >= 0; i--)
+            {
+                data[idx + i] = my_sum - my_data[i];
+                my_sum -= my_data[i];
+            }
         }
     }
 }

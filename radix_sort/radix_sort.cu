@@ -22,9 +22,10 @@ __device__ int4 split(int *shared, const int4 bits)
     shared[idx + 2] = bits.z;
     shared[idx + 3] = bits.w;
     __syncthreads();
-    scan::scan_block<int>(shared);
+    scan::scan_block<int, true>(shared);
     __syncthreads();
 
+    // make scan exclusive here?
     int4 ptr;
     ptr.w = shared[idx + 3] - bits.w;
     ptr.z = shared[idx + 2] - bits.w - bits.z;
@@ -171,7 +172,7 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
     result[lidx + 3] = block_histograms[gidx + 3];
 
     __syncthreads();
-    scan::scan_block<u32>(result);
+    scan::scan_block<u32, false>(result);
     __syncthreads();
 
     block_histograms[gidx + 0] = result[lidx + 0];
@@ -185,19 +186,16 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
     }
 }
 
-/* */
+/* add rolling sum from previous blocks */
 __global__ void add_sums(const u32 *from, u32 *to)
 {
-    /* lazy... scan not exclusive.. */
-    if (blockIdx.x == 0)
-        return;
     __shared__ u32 sum;
     const int lidx = threadIdx.x * ELEM_PER_THREAD;
     const int gidx = blockIdx.x * ELEM_PER_BLOCK + lidx;
 
     if (lidx == 0)
     {
-        sum = from[blockIdx.x - 1];
+        sum = from[blockIdx.x];
     }
 
     __syncthreads();
@@ -291,14 +289,6 @@ int radix_sort(int n, u64* input) {
         cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
     }
 
-/*
-    scan_histograms
-        <<<blocks, THREADS>>>
-        ((u32 *) data, status, blocks);
-    check_gpu_error("scan_histograms");
-    cudaMemcpy(input, data, n * sizeof(u64), cudaMemcpyDeviceToHost);
-    return 0;
-*/
     int start_bit = 0;
     while (start_bit < BITS)
     {
