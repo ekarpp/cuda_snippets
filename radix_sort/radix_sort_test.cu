@@ -24,11 +24,11 @@ std::vector<u32> random_u32(uint len)
 }
 
 
-bool is_sorted(std::vector<u64> vec)
+bool is_sorted(u64 *vec, uint len)
 {
     u64 prev = vec[0];
 
-    for (uint i = 1; i < vec.size(); i++)
+    for (uint i = 1; i < len; i++)
     {
         if (vec[i] > prev)
         {
@@ -50,7 +50,7 @@ static void test_sort(uint len)
 
     radix_sort(len, input.data());
 
-    if (!is_sorted(input))
+    if (!is_sorted(input.data(), len))
     {
         std::cout << "FAIL";
     }
@@ -129,8 +129,45 @@ static void test_global_scan()
     std::cout << "OK" << std::endl;
 }
 
+static void test_sort_block()
+{
+    std::cout << "Testing sort block...";
+    const int blocks = ELEM_PER_BLOCK;
+    std::vector<u64> data = random_u64(blocks * blocks);
+    for (int i = 0; i < data.size(); i++)
+        data[i] &= 0xF;
+
+    u64 *gpu = NULL;
+    cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u64));
+    cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u64), cudaMemcpyHostToDevice);
+
+    u64 *out = NULL;
+    cudaMalloc((void **) &out, blocks * blocks * sizeof(u64));
+
+    sort_block
+        <<<blocks, THREADS>>>
+        ((u64_vec *) gpu, (u64_vec *) out, 0);
+
+    u64 *sorted = (u64 *) std::malloc(blocks * blocks * sizeof(u64));
+    cudaMemcpy(sorted, out, blocks * blocks * sizeof(u64), cudaMemcpyDeviceToHost);
+
+    u64 offset = 0;
+    while (offset < blocks)
+    {
+        if (!is_sorted(sorted + offset * blocks, blocks))
+        {
+            std::cout << "FAIL" << std::endl;
+            return;
+        }
+        offset += blocks;
+    }
+
+    std::cout << "OK" << std::endl;
+}
+
 int main()
 {
+    test_sort_block();
     test_local_scan();
     test_global_scan();
     test_sort(1024);
