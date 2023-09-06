@@ -90,15 +90,14 @@ namespace scan
                 data[idx + i] = my_sum - my_data[i + 1];
                 my_sum -= my_data[i + 1];
             }
-
         }
         else
         {
             #pragma unroll
             for (int i = ELEM_PER_THREAD - 1; i >= 0; i--)
             {
-                data[idx + i] = my_sum - my_data[i];
                 my_sum -= my_data[i];
+                data[idx + i] = my_sum;
             }
         }
     }
