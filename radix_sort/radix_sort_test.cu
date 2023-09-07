@@ -181,9 +181,12 @@ static void test_create_histogram()
     u32 *grams = NULL;
     cudaMalloc((void **) &grams, blocks * RADIX_SIZE * sizeof(u32));
 
+    u32 *start_ptrs = NULL;
+    cudaMalloc((void **) &start_ptrs, blocks * RADIX_SIZE * sizeof(u32));
+
     compute_histograms
         <<<blocks, THREADS>>>
-        ((u64_vec *) gpu, grams, NULL, blocks, 0);
+        ((u64_vec *) gpu, grams, start_ptrs, blocks, 0);
 
     std::vector<u32> out(blocks * RADIX_SIZE);
     cudaMemcpy(out.data(), grams, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);

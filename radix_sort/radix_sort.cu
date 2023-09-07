@@ -259,7 +259,7 @@ void global_scan(u32 *block_histograms,
  * given block sorted data, histogram and start index for each radix in the sorted data
  * we reorder across blocks.
  */
-__global__ void reorder_data(const u64_vec2 *data_in,
+__global__ void reorder_data(const u64_vec *data_in,
                              u64 *data_out,
                              const u32 *block_histograms,
                              const u32 *start_ptrs,
@@ -272,10 +272,12 @@ __global__ void reorder_data(const u64_vec2 *data_in,
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
 
-    u64_vec2 my_data = data_in[gidx];
-    int2 my_radix;
+    u64_vec my_data = data_in[gidx];
+    int4 my_radix;
     my_radix.x = (my_data.x >> start_bit) & RADIX_MASK;
     my_radix.y = (my_data.y >> start_bit) & RADIX_MASK;
+    my_radix.z = (my_data.z >> start_bit) & RADIX_MASK;
+    my_radix.w = (my_data.w >> start_bit) & RADIX_MASK;
 
     if (lidx < 16)
     {
@@ -284,12 +286,16 @@ __global__ void reorder_data(const u64_vec2 *data_in,
     }
     __syncthreads();
 
-    u32 my_offsets[2];
-    my_offsets[0] = global_ptrs[my_radix.x] + lidx - local_ptrs[my_radix.x];
-    my_offsets[1] = global_ptrs[my_radix.y] + lidx - local_ptrs[my_radix.y];
+    u32_vec my_offsets;
+    my_offsets.x = global_ptrs[my_radix.x] + lidx - local_ptrs[my_radix.x];
+    my_offsets.y = global_ptrs[my_radix.y] + lidx - local_ptrs[my_radix.y];
+    my_offsets.z = global_ptrs[my_radix.z] + lidx - local_ptrs[my_radix.z];
+    my_offsets.w = global_ptrs[my_radix.w] + lidx - local_ptrs[my_radix.w];
 
-    data_out[my_offsets[0]] = my_data.x;
-    data_out[my_offsets[1]] = my_data.y;
+    data_out[my_offsets.x] = my_data.x;
+    data_out[my_offsets.y] = my_data.y;
+    data_out[my_offsets.z] = my_data.z;
+    data_out[my_offsets.w] = my_data.w;
 }
 
 
@@ -304,11 +310,7 @@ int radix_sort(int n, u64* input) {
     }
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
-
     const int scan_depth = std::floor(std::log(n) / std::log(ELEM_PER_BLOCK) - 1.0);
-
-    // in reorder and histogram creation each thread takes two elements
-    const int blocks2 = divup(n, 2 * THREADS);
 
     /* main data array */
     u64 *data = NULL;
@@ -321,11 +323,11 @@ int radix_sort(int n, u64* input) {
 
     /* start index for each radix in each block */
     u32 *start_ptrs = NULL;
-    cudaMalloc((void **) &start_ptrs, blocks2 * RADIX_SIZE * sizeof(u32));
+    cudaMalloc((void **) &start_ptrs, blocks * RADIX_SIZE * sizeof(u32));
 
     /* histogram of radixes from blocks in column major order */
     u32 *block_histograms = NULL;
-    cudaMalloc((void **) &block_histograms, blocks2 * RADIX_SIZE * sizeof(u32));
+    cudaMalloc((void **) &block_histograms, blocks * RADIX_SIZE * sizeof(u32));
 
     /* sum of each block during histogram scan */
     u32 *scan_sums[scan_depth];
@@ -361,8 +363,8 @@ int radix_sort(int n, u64* input) {
 
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
-            <<<blocks2, THREADS>>>
-            ((u64_vec2 *) data_tmp, data, block_histograms, start_ptrs, blocks2, start_bit);
+            <<<blocks, THREADS>>>
+            ((u64_vec *) data_tmp, data, block_histograms, start_ptrs, blocks, start_bit);
         check_gpu_error("reorder_data");
 
         start_bit += RADIX;
