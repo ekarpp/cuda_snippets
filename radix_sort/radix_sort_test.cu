@@ -43,6 +43,22 @@ void print_block(std::vector<u64> data)
     std::cout << std::endl;
 }
 
+void OK()
+{
+    std::cout << "\033[32m"
+              << "OK"
+              << "\033[0m"
+              << std::endl;
+}
+
+void FAIL()
+{
+    std::cout << "\033[31m"
+              << "OK"
+              << "\033[0m"
+              << std::endl;
+}
+
 
 
 static void test_sort_block()
@@ -79,12 +95,12 @@ static void test_sort_block()
     {
         if (sorted[i] != data[i])
         {
-            std::cout << "FAIL" << std::endl;
+            FAIL();
             return;
         }
     }
 
-    std::cout << "OK" << std::endl;
+    OK();
 }
 
 static void test_create_histogram()
@@ -124,13 +140,13 @@ static void test_create_histogram()
         {
             if (local[j] != out[j * blocks + i])
             {
-                std::cout << "FAIL" << std::endl;
+                FAIL();
                 return;
             }
         }
     }
 
-    std::cout << "OK" << std::endl;
+    OK();
 }
 
 static void test_local_scan()
@@ -156,13 +172,13 @@ static void test_local_scan()
     {
         if (sum != out[i])
         {
-            std::cout << "FAIL" << std::endl;
+            FAIL();
             return;
         }
         sum += data[i];
     }
 
-    std::cout << "OK" << std::endl;
+    OK();
 }
 
 static void test_global_scan()
@@ -192,13 +208,13 @@ static void test_global_scan()
         sum += data[i];
         if (sum != out[i])
         {
-            std::cout << "FAIL" << std::endl;
+            FAIL();
             return;
         }
 
     }
 
-    std::cout << "OK" << std::endl;
+    OK();
 }
 
 static void test_sort(uint len)
@@ -218,11 +234,11 @@ static void test_sort(uint len)
     {
         if (sorted[i] != input[i])
         {
-            std::cout << "FAIL" << std::endl;
+            FAIL();
             return;
         }
     }
-    std::cout << "OK" << std::endl;
+    OK();
 }
 
 int main()
