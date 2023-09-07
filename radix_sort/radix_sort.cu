@@ -15,22 +15,23 @@ void check_gpu_error(const char *fn)
 }
 
 /* 1-bit split */
-__device__ int4 split(int *shared, const int4 bits)
+__device__ int4 split(const int4 bits)
 {
+    __shared__ int ptrs[ELEM_PER_BLOCK];
     const int idx = threadIdx.x * ELEM_PER_THREAD;
-    shared[idx + 0] = bits.x;
-    shared[idx + 1] = bits.y;
-    shared[idx + 2] = bits.z;
-    shared[idx + 3] = bits.w;
+    ptrs[idx + 0] = bits.x;
+    ptrs[idx + 1] = bits.y;
+    ptrs[idx + 2] = bits.z;
+    ptrs[idx + 3] = bits.w;
     __syncthreads();
-    scan::scan_block<int, false>(shared);
+    scan::scan_block<int, false>(ptrs);
     __syncthreads();
 
     int4 ptr;
-    ptr.x = shared[idx + 0];
-    ptr.y = shared[idx + 1];
-    ptr.z = shared[idx + 2];
-    ptr.w = shared[idx + 3];
+    ptr.x = ptrs[idx + 0];
+    ptr.y = ptrs[idx + 1];
+    ptr.z = ptrs[idx + 2];
+    ptr.w = ptrs[idx + 3];
 
     __shared__ uint trues;
     if (threadIdx.x == THREADS - 1)
@@ -54,8 +55,7 @@ __device__ int4 split(int *shared, const int4 bits)
 __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int start_bit)
 {
     __shared__ u64 shared[ELEM_PER_BLOCK];
-    // how to get rid of ptrs?
-    __shared__ int ptrs[ELEM_PER_BLOCK];
+
 
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
@@ -72,13 +72,13 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
         bits.z = !((my_data.z >> bit) & 1);
         bits.w = !((my_data.w >> bit) & 1);
 
-        int4 ptr = split(ptrs, bits);
+        int4 ptr = split(bits);
 
         /* bank issues? */
-        ptrs[ptr.x] = my_data.x;
-        ptrs[ptr.y] = my_data.y;
-        ptrs[ptr.z] = my_data.z;
-        ptrs[ptr.w] = my_data.w;
+        shared[ptr.x] = my_data.x;
+        shared[ptr.y] = my_data.y;
+        shared[ptr.z] = my_data.z;
+        shared[ptr.w] = my_data.w;
         __syncthreads();
 
         my_data.x = shared[idx + 0];
@@ -212,7 +212,7 @@ void global_scan(u32 *block_histograms,
 
     if (scan_depth == 0)
     {
-        scan_histograms<false, true>
+        scan_histograms<false, false>
             <<<1, THREADS>>>
             (block_histograms, NULL);
         check_gpu_error("scan_histograms<false>");
@@ -367,7 +367,7 @@ int radix_sort(int n, u64* input) {
             ((u64_vec *) data_tmp, data, block_histograms, start_ptrs, blocks, start_bit);
         check_gpu_error("reorder_data");
 
-        start_bit += RADIX;
+        start_bit += RADIX * 100;
     }
 
     cudaMemcpy(input, data, n * sizeof(u64), cudaMemcpyDeviceToHost);

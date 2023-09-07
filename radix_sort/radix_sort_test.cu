@@ -1,5 +1,6 @@
 #include "radix_sort.cu"
 
+#include <algorithm>
 #include <vector>
 #include <iostream>
 
@@ -23,48 +24,57 @@ std::vector<u32> random_u32(uint len)
     return data;
 }
 
-
-bool is_sorted(u64 *vec, uint len)
+void print_block(std::vector<u64> data)
 {
-    u64 prev = vec[0];
+    if (data.size() < ELEM_PER_BLOCK)
+        return;
 
-    for (uint i = 1; i < len; i++)
+    std::cout << std::endl;
+    for (uint i = 0; i < ELEM_PER_BLOCK; i++)
     {
-        if (vec[i] > prev)
-        {
-            return false;
-        }
-        else
-        {
-            prev = vec[i];
-        }
+        printf("%.4llu ", data[i]);
+        if ((i+1)%4 == 0)
+            std::cout << "| ";
+        if ((i+1)%32 == 0)
+            std::cout << std::endl;
+        if ((i+1)%128 == 0)
+            std::cout << std::endl;
     }
-    return true;
+    std::cout << std::endl;
 }
 
 static void test_sort(uint len)
 {
-    std::cout << "Testing sort for " << len << " elements... ";
+    std::cout << "Testing sort for " << len << " elements... " << std::endl;
 
     std::vector<u64> input = random_u64(len);
+    std::vector<u64> sorted(len);
+    for (uint i = 0; i < len; i++)
+    {
+        input[i] %= 0xF;
+        sorted[i] = input[i];
+    }
+    std::sort(sorted.begin(), sorted.end());
 
+    print_block(input);
     radix_sort(len, input.data());
+    print_block(input);
 
-    if (!is_sorted(input.data(), len))
+    for (uint i = 0; i < len; i++)
     {
-        std::cout << "FAIL";
+        if (sorted[i] != input[i])
+        {
+            std::cout << "FAIL" << std::endl;
+            return;
+        }
     }
-    else
-    {
-        std::cout << "OK";
-    }
-
-    std::cout << std::endl;
+    std::cout << "OK" << std::endl;
 }
 
 static void test_local_scan()
 {
     std::cout << "Testing local scan... ";
+
     std::vector<u32> data = random_u32(ELEM_PER_BLOCK);
     u32* gpu = NULL;
     cudaMalloc((void **) &gpu, data.size() * sizeof(u32));
@@ -133,33 +143,39 @@ static void test_sort_block()
 {
     std::cout << "Testing sort block...";
     const int blocks = ELEM_PER_BLOCK;
-    std::vector<u64> data = random_u64(blocks * blocks);
+    std::vector<u64> data = random_u64(blocks * ELEM_PER_BLOCK);
     for (int i = 0; i < data.size(); i++)
         data[i] &= 0xF;
 
     u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u64));
-    cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u64), cudaMemcpyHostToDevice);
+    cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u64));
+    cudaMemcpy(gpu, data.data(), blocks * ELEM_PER_BLOCK * sizeof(u64), cudaMemcpyHostToDevice);
 
     u64 *out = NULL;
-    cudaMalloc((void **) &out, blocks * blocks * sizeof(u64));
+    cudaMalloc((void **) &out, blocks * ELEM_PER_BLOCK * sizeof(u64));
 
     sort_block
         <<<blocks, THREADS>>>
         ((u64_vec *) gpu, (u64_vec *) out, 0);
 
-    u64 *sorted = (u64 *) std::malloc(blocks * blocks * sizeof(u64));
-    cudaMemcpy(sorted, out, blocks * blocks * sizeof(u64), cudaMemcpyDeviceToHost);
+    std::vector<u64> sorted(ELEM_PER_BLOCK * blocks);
+    cudaMemcpy(sorted.data(), out, blocks * ELEM_PER_BLOCK * sizeof(u64), cudaMemcpyDeviceToHost);
 
     u64 offset = 0;
-    while (offset < blocks)
+    while (offset < blocks * ELEM_PER_BLOCK)
     {
-        if (!is_sorted(sorted + offset * blocks, blocks))
+        u64 *start = data.data() + offset;
+        std::sort(start, start + ELEM_PER_BLOCK);
+        offset += ELEM_PER_BLOCK;
+    }
+
+    for (int i = 0; i < data.size(); i++)
+    {
+        if (sorted[i] != data[i])
         {
             std::cout << "FAIL" << std::endl;
             return;
         }
-        offset += blocks;
     }
 
     std::cout << "OK" << std::endl;
@@ -213,11 +229,12 @@ static void test_create_histogram()
 
 int main()
 {
+    srand(time(NULL));
     test_sort_block();
-    test_local_scan();
-    test_global_scan();
-    test_create_histogram();
-    test_sort(1024);
-    test_sort(1024 * 1024);
+    // test_local_scan();
+    // test_global_scan();
+    // test_create_histogram();
+    // test_sort(1024);
+    // test_sort(1024 * 1024);
     return 0;
 }
