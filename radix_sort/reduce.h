@@ -39,6 +39,8 @@ namespace reduce
                 warp_reduces[0] = sum;
         }
 
+        __syncthreads();
+
         return warp_reduces[0];
     }
 }

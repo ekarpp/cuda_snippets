@@ -275,8 +275,8 @@ __global__ void reorder_data(const u64_vec2 *data_in,
     __syncthreads();
 
     u32 my_offsets[2];
-    my_offsets[0] = global_ptrs[my_radix.x] + lidx;// - local_ptrs[my_radix.x];
-    my_offsets[1] = global_ptrs[my_radix.y] + lidx;// - local_ptrs[my_radix.y];
+    my_offsets[0] = global_ptrs[my_radix.x] + lidx - local_ptrs[my_radix.x];
+    my_offsets[1] = global_ptrs[my_radix.y] + lidx - local_ptrs[my_radix.y];
 
     data_out[my_offsets[0]] = my_data.x;
     data_out[my_offsets[1]] = my_data.y;
