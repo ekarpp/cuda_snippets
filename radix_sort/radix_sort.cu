@@ -134,6 +134,16 @@ __global__ void compute_histograms(
         const int hist_idx = num_blocks * lidx + blockIdx.x;
         block_histograms[hist_idx] = histogram[lidx];
     }
+
+    if (lidx == 0)
+    {
+        int sum = 0;
+        for (int i = 0; i < RADIX_SIZE; i++)
+        {
+            start_ptrs[blockIdx.x * RADIX_SIZE + i] = sum;
+            sum += histogram[i];
+        }
+    }
 }
 
 /*
