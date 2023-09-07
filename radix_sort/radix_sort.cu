@@ -5,6 +5,11 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
+typedef ulonglong2 u64_vec2;
+/* TODO: adjust for other vector lengths */
+typedef ulonglong4 u64_vec;
+typedef uint4 u32_vec;
+
 void check_gpu_error(const char *fn)
 {
     cudaError_t err = cudaDeviceSynchronize();
