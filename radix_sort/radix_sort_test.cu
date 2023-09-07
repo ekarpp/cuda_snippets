@@ -19,7 +19,7 @@ std::vector<u32> random_u32(uint len)
     std::vector<u32> data(len);
 
     for (uint i = 0; i < len; i++)
-        data[i] = rand() % 0xFF;
+        data[i] = rand() & 0xFF;
 
     return data;
 }
@@ -45,20 +45,16 @@ void print_block(std::vector<u64> data)
 
 static void test_sort(uint len)
 {
-    std::cout << "Testing sort for " << len << " elements... " << std::endl;
+    std::cout << "Testing sort for " << len << " elements... ";
 
     std::vector<u64> input = random_u64(len);
     std::vector<u64> sorted(len);
     for (uint i = 0; i < len; i++)
-    {
-        input[i] %= 0xF;
         sorted[i] = input[i];
-    }
+
     std::sort(sorted.begin(), sorted.end());
 
-    print_block(input);
     radix_sort(len, input.data());
-    print_block(input);
 
     for (uint i = 0; i < len; i++)
     {
@@ -94,7 +90,7 @@ static void test_local_scan()
     {
         if (sum != out[i])
         {
-            std::cout << "FAIL at " << i << "/" << data.size() << std::endl;
+            std::cout << "FAIL" << std::endl;
             return;
         }
         sum += data[i];
@@ -141,7 +137,7 @@ static void test_global_scan()
 
 static void test_sort_block()
 {
-    std::cout << "Testing sort block...";
+    std::cout << "Testing sort block... ";
     const int blocks = ELEM_PER_BLOCK;
     std::vector<u64> data = random_u64(blocks * ELEM_PER_BLOCK);
     for (int i = 0; i < data.size(); i++)
@@ -183,7 +179,7 @@ static void test_sort_block()
 
 static void test_create_histogram()
 {
-    std::cout << "Testing create histogram...";
+    std::cout << "Testing create histogram... ";
     const int blocks = ELEM_PER_BLOCK;
 
     std::vector<u64> data = random_u64(blocks * blocks);
@@ -231,10 +227,10 @@ int main()
 {
     srand(time(NULL));
     test_sort_block();
-    // test_local_scan();
-    // test_global_scan();
-    // test_create_histogram();
-    // test_sort(1024);
+    test_local_scan();
+    test_global_scan();
+    test_create_histogram();
+    test_sort(1024);
     // test_sort(1024 * 1024);
     return 0;
 }

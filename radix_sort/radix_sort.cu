@@ -292,10 +292,10 @@ __global__ void reorder_data(const u64_vec *data_in,
     my_offsets.z = global_ptrs[my_radix.z] + lidx - local_ptrs[my_radix.z];
     my_offsets.w = global_ptrs[my_radix.w] + lidx - local_ptrs[my_radix.w];
 
-    data_out[my_offsets.x] = my_data.x;
-    data_out[my_offsets.y] = my_data.y;
-    data_out[my_offsets.z] = my_data.z;
-    data_out[my_offsets.w] = my_data.w;
+    data_out[ELEM_PER_THREAD * my_offsets.x + 0] = my_data.x;
+    data_out[ELEM_PER_THREAD * my_offsets.y + 1] = my_data.y;
+    data_out[ELEM_PER_THREAD * my_offsets.z + 2] = my_data.z;
+    data_out[ELEM_PER_THREAD * my_offsets.w + 3] = my_data.w;
 }
 
 
@@ -367,7 +367,7 @@ int radix_sort(int n, u64* input) {
             ((u64_vec *) data_tmp, data, block_histograms, start_ptrs, blocks, start_bit);
         check_gpu_error("reorder_data");
 
-        start_bit += RADIX * 100;
+        start_bit += RADIX;
     }
 
     cudaMemcpy(input, data, n * sizeof(u64), cudaMemcpyDeviceToHost);
