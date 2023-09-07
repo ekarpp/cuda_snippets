@@ -14,7 +14,7 @@ std::vector<u64> random_u64(uint len)
     return data;
 }
 
-std::vector<u32> random_u32(uint len)
+std::vector<u32> random_u32_masked_8bit(uint len)
 {
     std::vector<u32> data(len);
 
@@ -137,7 +137,7 @@ static void test_local_scan()
 {
     std::cout << "Testing local scan... ";
 
-    std::vector<u32> data = random_u32(ELEM_PER_BLOCK);
+    std::vector<u32> data = random_u32_masked_8bit(ELEM_PER_BLOCK);
     u32* gpu = NULL;
     cudaMalloc((void **) &gpu, data.size() * sizeof(u32));
     cudaMemcpy(gpu, data.data(), data.size() * sizeof(u32), cudaMemcpyHostToDevice);
@@ -170,21 +170,21 @@ static void test_global_scan()
     std::cout << "Testing global scan... ";
     const int scan_depth = 1;
     const int blocks = ELEM_PER_BLOCK;
-    std::vector<u32> data = random_u32(blocks * blocks);
+    std::vector<u32> data = random_u32_masked_8bit(blocks * ELEM_PER_BLOCK);
     int scan_sizes[1];
     scan_sizes[0] = blocks;
 
     u32 *gpu = NULL;
-    cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u32));
-    cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u32), cudaMemcpyHostToDevice);
+    cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u32));
+    cudaMemcpy(gpu, data.data(), blocks * ELEM_PER_BLOCK * sizeof(u32), cudaMemcpyHostToDevice);
 
     u32 *scan_sums[1];
     cudaMalloc((void **) &scan_sums[0], blocks * sizeof(u32));
 
-    global_scan(gpu, scan_sums, scan_sizes, scan_depth, blocks);
+    global_scan(gpu, scan_sums, scan_sizes, scan_depth);
 
     std::vector<u32> out(blocks * blocks);
-    cudaMemcpy(out.data(), gpu, blocks * blocks * sizeof(u32), cudaMemcpyDeviceToHost);
+    cudaMemcpy(out.data(), gpu, blocks * ELEM_PER_BLOCK * sizeof(u32), cudaMemcpyDeviceToHost);
 
     u32 sum = 0;
     for (uint i = 0; i < data.size(); i++)
@@ -233,6 +233,6 @@ int main()
     test_local_scan();
     test_global_scan();
     test_sort(1024);
-    test_sort(1024 * 1024);
+    test_sort(1 << 16);
     return 0;
 }

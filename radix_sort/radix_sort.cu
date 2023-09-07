@@ -211,24 +211,22 @@ __global__ void add_sums(const u32 *from, u32 *to)
 void global_scan(u32 *block_histograms,
                  u32 **scan_sums,
                  const int *scan_sizes,
-                 const int scan_depth,
-                 const int blocks)
+                 const int scan_depth)
 {
-
     if (scan_depth == 0)
     {
         scan_histograms<false, false>
             <<<1, THREADS>>>
             (block_histograms, NULL);
-        check_gpu_error("scan_histograms<false>");
+        check_gpu_error("scan_histograms<false, false>");
         return;
     }
 
     /* first scan the histograms and gather sum for each block */
     scan_histograms<true, true>
-        <<<blocks, THREADS>>>
+        <<<scan_sizes[0], THREADS>>>
         (block_histograms, scan_sums[scan_depth - 1]);
-    check_gpu_error("scan_histograms<true>");
+    check_gpu_error("scan_histograms<true, true>");
 
     /* iteratively scan the sum arrays if they are too large */
     for (int i = 0; i < scan_depth - 1; i++)
@@ -236,7 +234,7 @@ void global_scan(u32 *block_histograms,
         scan_histograms<true, false>
             <<<scan_sizes[i], THREADS>>>
             (scan_sums[i], scan_sums[i+1]);
-        check_gpu_error("scan_histograms<true> in loop");
+        check_gpu_error("scan_histograms<true, false>");
     }
 
 
@@ -244,7 +242,7 @@ void global_scan(u32 *block_histograms,
     scan_histograms<false, false>
         <<<1, THREADS>>>
         (scan_sums[scan_depth - 1], NULL);
-    check_gpu_error("scan_histograms<false>");
+    check_gpu_error("scan_histograms<false, false>");
 
     /* iteratively in reverse add the scan totals back */
     for (int i = scan_depth - 1; i > 0; i--)
@@ -256,7 +254,7 @@ void global_scan(u32 *block_histograms,
 
     /* and finally to the histogram array */
     add_sums
-        <<<blocks, THREADS>>>
+        <<<scan_sizes[0], THREADS>>>
         (scan_sums[0], block_histograms);
 }
 
@@ -315,7 +313,6 @@ int radix_sort(int n, u64* input) {
     }
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
-    const int scan_depth = std::floor(std::log(n) / std::log(ELEM_PER_BLOCK) - 1.0);
 
     /* main data array */
     u64 *data = NULL;
@@ -333,16 +330,17 @@ int radix_sort(int n, u64* input) {
     /* histogram of radixes from blocks in column major order */
     u32 *block_histograms = NULL;
     cudaMalloc((void **) &block_histograms, blocks * RADIX_SIZE * sizeof(u32));
-
+    const int scan_depth = std::floor(std::log(RADIX_SIZE * blocks) / std::log(ELEM_PER_BLOCK) - 1e-10);
     /* sum of each block during histogram scan */
     u32 *scan_sums[scan_depth];
     int scan_sizes[scan_depth];
 
     for (int i = 0; i < scan_depth; i++)
     {
-        scan_sizes[i] = (i == 0) ? blocks : scan_sizes[i - 1];
-        scan_sizes[i] = divup(scan_sizes[i], ELEM_PER_BLOCK);
         scan_sums[i] = NULL;
+        scan_sizes[i] = (i == 0)
+            ? divup(RADIX_SIZE * blocks, ELEM_PER_BLOCK)
+            : divup(scan_sizes[i - 1], ELEM_PER_BLOCK);
         cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
     }
 
@@ -364,7 +362,7 @@ int radix_sort(int n, u64* input) {
         check_gpu_error("compute_histograms");
 
         /* (3) prefix sum across blocks over the histograms. */
-        global_scan(block_histograms, scan_sums, scan_sizes, scan_depth, blocks);
+        global_scan(block_histograms, scan_sums, scan_sizes, scan_depth);
 
         /* (4) using histogram scan each block moves their elements to correct position */
         reorder_data
