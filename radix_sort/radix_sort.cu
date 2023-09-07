@@ -292,15 +292,15 @@ __global__ void reorder_data(const u64_vec *data_in,
     __syncthreads();
 
     u32_vec my_offsets;
-    my_offsets.x = global_ptrs[my_radix.x] + lidx - local_ptrs[my_radix.x];
-    my_offsets.y = global_ptrs[my_radix.y] + lidx - local_ptrs[my_radix.y];
-    my_offsets.z = global_ptrs[my_radix.z] + lidx - local_ptrs[my_radix.z];
-    my_offsets.w = global_ptrs[my_radix.w] + lidx - local_ptrs[my_radix.w];
+    my_offsets.x = global_ptrs[my_radix.x] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.x];
+    my_offsets.y = global_ptrs[my_radix.y] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.y];
+    my_offsets.z = global_ptrs[my_radix.z] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.z];
+    my_offsets.w = global_ptrs[my_radix.w] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.w];
 
-    data_out[ELEM_PER_THREAD * my_offsets.x + 0] = my_data.x;
-    data_out[ELEM_PER_THREAD * my_offsets.y + 1] = my_data.y;
-    data_out[ELEM_PER_THREAD * my_offsets.z + 2] = my_data.z;
-    data_out[ELEM_PER_THREAD * my_offsets.w + 3] = my_data.w;
+    data_out[my_offsets.x + 0] = my_data.x;
+    data_out[my_offsets.y + 1] = my_data.y;
+    data_out[my_offsets.z + 2] = my_data.z;
+    data_out[my_offsets.w + 3] = my_data.w;
 }
 
 
