@@ -54,7 +54,7 @@ void OK()
 void FAIL()
 {
     std::cout << "\033[31m"
-              << "OK"
+              << "FAIL"
               << "\033[0m"
               << std::endl;
 }
@@ -250,5 +250,6 @@ int main()
     test_global_scan();
     test_sort(1024);
     test_sort(1 << 16);
+    test_sort(1024 * 1024);
     return 0;
 }
