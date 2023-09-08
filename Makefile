@@ -1,4 +1,4 @@
-BIN=radix_sort_benchmark radix_sort_test
+BIN=benchmark test
 NVCC=nvcc
 CXX=g++
 NVCCFLAGS=-G -g --std=c++14 -O3 -arch=sm_61
@@ -9,14 +9,14 @@ all: $(BIN)
 clean:
 	rm -f *.o $(BIN)
 
-radix_sort_benchmark: radix_sort.o radix_sort_benchmark.o
+benchmark: radix_sort.o benchmark.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@
 
-radix_sort_test: radix_sort_test.o
+test: test.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@
 
 radix_sort.o: radix_sort.cu scan.h reduce.h
-radix_sort_test.o: radix_sort_test.cu radix_sort.o
+test.o: test.cu radix_sort.o
 
 %.o: %.cu
 	$(NVCC) $(NVCCFLAGS) -o $@ -c $<
