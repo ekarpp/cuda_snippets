@@ -316,12 +316,12 @@ int radix_sort(int n, u64* input) {
 
     /* main data array */
     u64 *data = NULL;
-    cudaMalloc((void **) &data, n * sizeof(u64));
-    cudaMemcpy(data, input, n * sizeof(u64), cudaMemcpyHostToDevice);
+    cudaMalloc((void **) &data, blocks * ELEM_PER_BLOCK * sizeof(u64));
+    cudaMemcpy(data, input, blocks * ELEM_PER_BLOCK * sizeof(u64), cudaMemcpyHostToDevice);
 
     /* stores data where each block is sorted */
     u64 *data_tmp = NULL;
-    cudaMalloc((void **) &data_tmp, n * sizeof(u64));
+    cudaMalloc((void **) &data_tmp, blocks * ELEM_PER_BLOCK * sizeof(u64));
 
     /* start index for each radix in each block */
     u32 *start_ptrs = NULL;
