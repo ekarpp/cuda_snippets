@@ -61,33 +61,34 @@ void FAIL()
 
 
 
-static void test_sort_block()
+static void test_sort_block(u64 n)
 {
-    std::cout << "Testing sort block... ";
-    const int blocks = ELEM_PER_BLOCK;
-    std::vector<u64> data = random_u64(blocks * ELEM_PER_BLOCK);
+    std::cout << "Testing sort block for " << n << " elements... ";
+    const int blocks = divup(n, ELEM_PER_BLOCK);
+    std::vector<u64> data = random_u64(n);
     for (int i = 0; i < data.size(); i++)
         data[i] &= 0xF;
 
     u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u64));
-    cudaMemcpy(gpu, data.data(), blocks * ELEM_PER_BLOCK * sizeof(u64), cudaMemcpyHostToDevice);
+    cudaMalloc((void **) &gpu, n * sizeof(u64));
+    cudaMemcpy(gpu, data.data(), n * sizeof(u64), cudaMemcpyHostToDevice);
 
     u64 *out = NULL;
-    cudaMalloc((void **) &out, blocks * ELEM_PER_BLOCK * sizeof(u64));
+    cudaMalloc((void **) &out, n * sizeof(u64));
 
     sort_block
         <<<blocks, THREADS>>>
         ((u64_vec *) gpu, (u64_vec *) out, 0);
 
-    std::vector<u64> sorted(ELEM_PER_BLOCK * blocks);
-    cudaMemcpy(sorted.data(), out, blocks * ELEM_PER_BLOCK * sizeof(u64), cudaMemcpyDeviceToHost);
+    std::vector<u64> sorted(n);
+    cudaMemcpy(sorted.data(), out, n * sizeof(u64), cudaMemcpyDeviceToHost);
 
     u64 offset = 0;
-    while (offset < blocks * ELEM_PER_BLOCK)
+    while (offset < n)
     {
         u64 *start = data.data() + offset;
-        std::sort(start, start + ELEM_PER_BLOCK);
+        u64 *end = data.data() + std::min(offset + ELEM_PER_BLOCK, n);
+        std::sort(start, end);
         offset += ELEM_PER_BLOCK;
     }
 
@@ -244,7 +245,7 @@ static void test_sort(uint len)
 int main()
 {
     srand(time(NULL));
-    test_sort_block();
+    test_sort_block(1024 * 1024);
     test_create_histogram();
     test_local_scan();
     test_global_scan();
