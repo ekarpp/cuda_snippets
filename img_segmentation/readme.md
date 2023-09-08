@@ -1,1 +1,0 @@
-1-bit image segmentation implemented on the GPU. Goal is to split a 1-bit image to a rectangle and background such that the sum of squared errors is minimized. For more information, see [here.](https://ppc-exercises.cs.aalto.fi/course/aalto2023/is).
