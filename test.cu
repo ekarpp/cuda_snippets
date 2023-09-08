@@ -63,7 +63,7 @@ void FAIL()
 
 static void test_sort_block(u64 n)
 {
-    std::cout << "Testing sort block for " << n << " elements... ";
+    std::cout << "Testing sort_block for " << n << " elements... ";
     const int blocks = divup(n, ELEM_PER_BLOCK);
     std::vector<u64> data = random_u64(n);
     for (int i = 0; i < data.size(); i++)
@@ -104,17 +104,17 @@ static void test_sort_block(u64 n)
     OK();
 }
 
-static void test_create_histogram()
+static void test_create_histogram(u64 n)
 {
-    std::cout << "Testing create histogram... ";
-    const int blocks = ELEM_PER_BLOCK;
+    std::cout << "Testing create_histogram for " << n << " elements... ";
+    const int blocks = divup(n, ELEM_PER_BLOCK);
 
-    std::vector<u64> data = random_u64(blocks * blocks);
+    std::vector<u64> data = random_u64(blocks * ELEM_PER_BLOCK);
     for (int i = 0; i < data.size(); i++)
         data[i] &= 0xF;
 
     u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, blocks * blocks * sizeof(u64));
+    cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u64));
     cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u64), cudaMemcpyHostToDevice);
 
     u32 *grams = NULL;
@@ -246,7 +246,7 @@ int main()
 {
     srand(time(NULL));
     test_sort_block(1024 * 1024);
-    test_create_histogram();
+    test_create_histogram(1024 * 1024);
     test_local_scan();
     test_global_scan();
     test_sort(1024);
