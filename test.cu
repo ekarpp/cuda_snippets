@@ -182,25 +182,34 @@ static void test_local_scan()
     OK();
 }
 
-static void test_global_scan()
+static void test_global_scan(u64 n)
 {
-    std::cout << "Testing global scan... ";
-    const int scan_depth = 1;
-    const int blocks = ELEM_PER_BLOCK;
+    std::cout << "Testing global scan for " << n << " elements... ";
+
+    const int blocks = divup(n, ELEM_PER_BLOCK);
     std::vector<u32> data = random_u32_masked_8bit(blocks * ELEM_PER_BLOCK);
-    int scan_sizes[1];
-    scan_sizes[0] = blocks;
+    const int scan_depth = std::floor(std::log(RADIX_SIZE * blocks) / std::log(ELEM_PER_BLOCK) - 1e-10);
+
+    /* LAZY, just copied from radix_sort.cu */
+    u32 *scan_sums[scan_depth];
+    int scan_sizes[scan_depth];
+
+    for (int i = 0; i < scan_depth; i++)
+    {
+        scan_sums[i] = NULL;
+        scan_sizes[i] = (i == 0)
+            ? divup(RADIX_SIZE * blocks, ELEM_PER_BLOCK)
+            : divup(scan_sizes[i - 1], ELEM_PER_BLOCK);
+        cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
+    }
 
     u32 *gpu = NULL;
     cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u32));
     cudaMemcpy(gpu, data.data(), blocks * ELEM_PER_BLOCK * sizeof(u32), cudaMemcpyHostToDevice);
 
-    u32 *scan_sums[1];
-    cudaMalloc((void **) &scan_sums[0], blocks * sizeof(u32));
-
     global_scan(gpu, scan_sums, scan_sizes, scan_depth);
 
-    std::vector<u32> out(blocks * blocks);
+    std::vector<u32> out(blocks * ELEM_PER_BLOCK);
     cudaMemcpy(out.data(), gpu, blocks * ELEM_PER_BLOCK * sizeof(u32), cudaMemcpyDeviceToHost);
 
     u32 sum = 0;
@@ -218,7 +227,7 @@ static void test_global_scan()
     OK();
 }
 
-static void test_sort(uint len)
+static void test_sort(u64 len)
 {
     std::cout << "Testing sort for " << len << " elements... ";
 
@@ -248,7 +257,7 @@ int main()
     test_sort_block(1024 * 1024);
     test_create_histogram(1024 * 1024);
     test_local_scan();
-    test_global_scan();
+    test_global_scan(1024 * 1024);
     test_sort(1024);
     test_sort(1 << 16);
     test_sort(1024 * 1024);
