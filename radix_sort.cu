@@ -13,7 +13,8 @@ typedef uint4 u32_vec;
 void check_gpu_error(const char *fn)
 {
     cudaError_t err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) {
+    if (err != cudaSuccess)
+    {
         std::cout << "CUDA error in \"" << fn << "\": " << cudaGetErrorString(err) << std::endl;
         exit(-1);
     }
@@ -40,9 +41,7 @@ __device__ int4 split(const int4 bits)
 
     __shared__ uint trues;
     if (threadIdx.x == THREADS - 1)
-    {
         trues = ptr.w + bits.w;
-    }
     __syncthreads();
 
     ptr.x = (bits.x) ? ptr.x : trues + idx + 0 - ptr.x;
@@ -126,9 +125,7 @@ __global__ void compute_histograms(
     radix[lidx] = my_radix.w;
 
     if (lidx < RADIX_SIZE)
-    {
         ptrs[lidx] = 0;
-    }
     __syncthreads();
 
     if (lidx > 0 && my_radix.x != radix[lidx - 1])
@@ -160,10 +157,7 @@ __global__ void compute_histograms(
     __syncthreads();
 
     if (lidx < RADIX_SIZE)
-    {
-        const int hist_idx = num_blocks * lidx + blockIdx.x;
-        block_histograms[hist_idx] = ptrs[lidx];
-    }
+        block_histograms[num_blocks * lidx + blockIdx.x] = ptrs[lidx];
 }
 
 /*
@@ -186,9 +180,7 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
     __syncthreads();
 
     if (add_total && threadIdx.x == THREADS - 1)
-    {
         scan_sums[blockIdx.x] = result[lidx + 3] + block_histograms[gidx + 3];
-    }
 
     block_histograms[gidx + 0] = result[lidx + 0];
     block_histograms[gidx + 1] = result[lidx + 1];
@@ -207,9 +199,7 @@ __global__ void add_sums(const u32 *from, u32 *to)
     const int gidx = blockIdx.x * ELEM_PER_BLOCK + lidx;
 
     if (lidx == 0)
-    {
         sum = from[blockIdx.x];
-    }
 
     __syncthreads();
 
@@ -261,11 +251,9 @@ void global_scan(u32 *block_histograms,
 
     /* iteratively in reverse add the scan totals back */
     for (int i = scan_depth - 1; i > 0; i--)
-    {
         add_sums
             <<<scan_sizes[i - 1], THREADS>>>
             (scan_sums[i], scan_sums[i - 1]);
-    }
 
     /* and finally to the histogram array */
     add_sums
@@ -323,9 +311,7 @@ inline int static divup(int a, int b) { return (a + b - 1) / b; }
 int radix_sort(int n, u64* input) {
     // overflow in scan if too large (can increase to u64)
     if (n >= 1 << 30)
-    {
         return -1;
-    }
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
     const int num_elems = ELEM_PER_BLOCK * blocks;
