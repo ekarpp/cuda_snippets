@@ -259,13 +259,12 @@ static void test_global_scan(u64 n)
     u32 sum = 0;
     for (uint i = 0; i < data.size(); i++)
     {
-        sum += data[i];
         if (sum != out[i])
         {
             FAIL();
             return;
         }
-
+        sum += data[i];
     }
 
     OK();
@@ -312,7 +311,9 @@ int main()
 
     test_sort(1024);
     test_sort(12345);
+    test_sort((1 << 16) - 12345);
     test_sort(1 << 16);
     test_sort(1024 * 1024);
+
     return 0;
 }

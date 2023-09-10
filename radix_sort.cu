@@ -185,15 +185,15 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
     scan::scan_block<u32, inclusive>(result);
     __syncthreads();
 
+    if (add_total && threadIdx.x == THREADS - 1)
+    {
+        scan_sums[blockIdx.x] = result[lidx + 3] + block_histograms[gidx + 3];
+    }
+
     block_histograms[gidx + 0] = result[lidx + 0];
     block_histograms[gidx + 1] = result[lidx + 1];
     block_histograms[gidx + 2] = result[lidx + 2];
     block_histograms[gidx + 3] = result[lidx + 3];
-
-    if (add_total && threadIdx.x == THREADS - 1)
-    {
-        scan_sums[blockIdx.x] = result[lidx + 3];
-    }
 }
 
 /* add rolling sum from previous blocks */
@@ -220,7 +220,7 @@ __global__ void add_sums(const u32 *from, u32 *to)
 
 
 /*
- * (inclusive) scan-then-propagate: first scan histogram blocks and gather total sum for each.
+ * (exclusive) scan-then-propagate: first scan histogram blocks and gather total sum for each.
  * iteratively scan over sum arrays and finally add offset sum to each histogram block.
  */
 void global_scan(u32 *block_histograms,
@@ -230,7 +230,7 @@ void global_scan(u32 *block_histograms,
 {
     if (scan_depth == 0)
     {
-        scan_histograms<false, true>
+        scan_histograms<false, false>
             <<<1, THREADS>>>
             (block_histograms, NULL);
         check_gpu_error("scan_histograms<false, false>");
@@ -238,7 +238,7 @@ void global_scan(u32 *block_histograms,
     }
 
     /* first scan the histograms and gather sum for each block */
-    scan_histograms<true, true>
+    scan_histograms<true, false>
         <<<scan_sizes[0], THREADS>>>
         (block_histograms, scan_sums[scan_depth - 1]);
     check_gpu_error("scan_histograms<true, true>");
@@ -304,16 +304,16 @@ __global__ void reorder_data(const u64_vec *data_in,
     }
     __syncthreads();
 
-    u32_vec my_offsets;
-    my_offsets.x = global_ptrs[my_radix.x] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.x];
-    my_offsets.y = global_ptrs[my_radix.y] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.y];
-    my_offsets.z = global_ptrs[my_radix.z] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.z];
-    my_offsets.w = global_ptrs[my_radix.w] + ELEM_PER_THREAD * lidx - local_ptrs[my_radix.w];
+    u32_vec my_indices;
+    my_indices.x = global_ptrs[my_radix.x] + (ELEM_PER_THREAD * lidx + 0) - local_ptrs[my_radix.x];
+    my_indices.y = global_ptrs[my_radix.y] + (ELEM_PER_THREAD * lidx + 1) - local_ptrs[my_radix.y];
+    my_indices.z = global_ptrs[my_radix.z] + (ELEM_PER_THREAD * lidx + 2) - local_ptrs[my_radix.z];
+    my_indices.w = global_ptrs[my_radix.w] + (ELEM_PER_THREAD * lidx + 3) - local_ptrs[my_radix.w];
 
-    data_out[my_offsets.x + 0] = my_data.x;
-    data_out[my_offsets.y + 1] = my_data.y;
-    data_out[my_offsets.z + 2] = my_data.z;
-    data_out[my_offsets.w + 3] = my_data.w;
+    data_out[my_indices.x] = my_data.x;
+    data_out[my_indices.y] = my_data.y;
+    data_out[my_indices.z] = my_data.z;
+    data_out[my_indices.w] = my_data.w;
 }
 
 
