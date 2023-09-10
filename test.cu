@@ -212,7 +212,7 @@ static void test_global_scan(u64 n)
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
     std::vector<u32> data = random_u32_masked_8bit(blocks * ELEM_PER_BLOCK);
-    const int scan_depth = std::floor(std::log(blocks * ELEM_PER_BLOCK) / std::log(ELEM_PER_BLOCK) - 1);
+    const int scan_depth = std::floor(std::log(blocks) / std::log(ELEM_PER_BLOCK));
 
     /* LAZY, just copied from radix_sort.cu */
     u32 *scan_sums[scan_depth];
@@ -222,7 +222,7 @@ static void test_global_scan(u64 n)
     {
         scan_sums[i] = NULL;
         scan_sizes[i] = (i == 0)
-            ? divup(blocks, ELEM_PER_BLOCK)
+            ? divup(blocks * ELEM_PER_BLOCK, ELEM_PER_BLOCK)
             : divup(scan_sizes[i - 1], ELEM_PER_BLOCK);
         cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
     }
@@ -278,10 +278,13 @@ static void test_sort(u64 len)
 int main()
 {
     srand(time(NULL));
+    test_sort_block(1024 * 1024);
     test_sort_block(12345);
+    test_create_histogram(1024 * 1024);
     test_create_histogram(12345);
     test_local_scan();
     test_global_scan(1024 * 1024);
+    test_global_scan(12345);
     test_sort(1024);
     test_sort(12345);
     test_sort(1 << 16);
