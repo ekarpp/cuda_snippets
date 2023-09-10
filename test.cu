@@ -144,8 +144,6 @@ static void test_create_histogram(u64 n)
 
     std::vector<u32> out(blocks * RADIX_SIZE);
     cudaMemcpy(out.data(), grams, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
-    std::vector<u32> ptrs(blocks*RADIX_SIZE);
-    cudaMemcpy(ptrs.data(), start_ptrs, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
 
     for (int i = 0; i < blocks; i++)
     {
@@ -171,7 +169,23 @@ static void test_create_histogram(u64 n)
         }
     }
 
-    /* TODO: check start_ptrs */
+    std::vector<u32> ptrs(blocks * RADIX_SIZE);
+    cudaMemcpy(ptrs.data(), start_ptrs, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
+
+    for (int i = 0; i < blocks; i++)
+    {
+        const int offset = i * ELEM_PER_BLOCK;
+        for (int j = 1; j < RADIX_SIZE; j++)
+        {
+            const int idx = i * RADIX_SIZE + j;
+
+            if (data[ptrs[idx] + offset] != j || data[ptrs[idx] - 1 + offset] != j - 1)
+            {
+                FAIL();
+                return;
+            }
+        }
+    }
 
     OK();
 }
@@ -284,16 +298,18 @@ static void test_sort(u64 len)
 int main()
 {
     srand(time(NULL));
-    test_sort_block(1024);
-    test_sort_block(1024 * 1024);
-    test_sort_block(12345);
-    test_create_histogram(1024);
-    test_create_histogram(1024 * 1024);
-    test_create_histogram(12345);
     test_local_scan();
-    test_global_scan(1024);
-    test_global_scan(1024 * 1024);
-    test_global_scan(12345);
+
+    std::vector<int> sizes = { 1024, 12345, 1024 * 1024 };
+
+    for (int i = 0; i < sizes.size(); i++)
+    {
+        const int len = sizes[i];
+        test_sort_block(len);
+        test_create_histogram(len);
+        test_global_scan(len);
+    }
+
     test_sort(1024);
     test_sort(12345);
     test_sort(1 << 16);
