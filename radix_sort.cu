@@ -108,6 +108,11 @@ __global__ void compute_histograms(
     const int start_bit
 )
 {
+    // radix of final element for each thread
+    __shared__ int radix[THREADS];
+    // start index for each radix
+    __shared__ int ptrs[RADIX_SIZE];
+
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
 
@@ -118,36 +123,46 @@ __global__ void compute_histograms(
     my_radix.z = (my_data.z >> start_bit) & RADIX_MASK;
     my_radix.w = (my_data.w >> start_bit) & RADIX_MASK;
 
-    int histogram[RADIX_SIZE];
+    radix[lidx] = my_radix.w;
 
-    #pragma unroll
-    for (int i = 0; i < RADIX_SIZE; i++)
-        histogram[i] = 0;
+    if (lidx < RADIX_SIZE)
+    {
+        ptrs[lidx] = 0;
+    }
+    __syncthreads();
 
-    histogram[my_radix.x]++;
-    histogram[my_radix.y]++;
-    histogram[my_radix.z]++;
-    histogram[my_radix.w]++;
+    if (lidx > 0 && my_radix.x != radix[lidx - 1])
+        ptrs[my_radix.x] = ELEM_PER_THREAD * lidx;
+    if (my_radix.x != my_radix.y)
+        ptrs[my_radix.y] = ELEM_PER_THREAD * lidx + 1;
+    if (my_radix.y != my_radix.z)
+        ptrs[my_radix.z] = ELEM_PER_THREAD * lidx + 2;
+    if (my_radix.z != my_radix.w)
+        ptrs[my_radix.w] = ELEM_PER_THREAD * lidx + 3;
+    __syncthreads();
 
-    #pragma unroll
-    for (int i = 0; i < RADIX_SIZE; i++)
-        histogram[i] = reduce::reduce_block<int>(histogram[i]);
 
-    /* store in column major order */
+    if (lidx < RADIX_SIZE)
+        start_ptrs[blockIdx.x * RADIX_SIZE + lidx] = ptrs[lidx];
+    __syncthreads();
+
+
+    if (lidx > 0 && my_radix.x != radix[lidx - 1])
+        ptrs[radix[lidx - 1]] = ELEM_PER_THREAD * lidx + 0 - ptrs[radix[lidx - 1]];
+    if (my_radix.x != my_radix.y)
+        ptrs[my_radix.x] = ELEM_PER_THREAD * lidx + 1 - ptrs[my_radix.x];
+    if (my_radix.y != my_radix.z)
+        ptrs[my_radix.y] = ELEM_PER_THREAD * lidx + 2 - ptrs[my_radix.y];
+    if (my_radix.z != my_radix.w)
+        ptrs[my_radix.z] = ELEM_PER_THREAD * lidx + 3 - ptrs[my_radix.z];
+    if (lidx == THREADS - 1)
+        ptrs[radix[lidx]] = ELEM_PER_BLOCK - ptrs[radix[lidx]];
+    __syncthreads();
+
     if (lidx < RADIX_SIZE)
     {
         const int hist_idx = num_blocks * lidx + blockIdx.x;
-        block_histograms[hist_idx] = histogram[lidx];
-    }
-
-    if (lidx == 0)
-    {
-        int sum = 0;
-        for (int i = 0; i < RADIX_SIZE; i++)
-        {
-            start_ptrs[blockIdx.x * RADIX_SIZE + i] = sum;
-            sum += histogram[i];
-        }
+        block_histograms[hist_idx] = ptrs[lidx];
     }
 }
 
@@ -215,7 +230,7 @@ void global_scan(u32 *block_histograms,
 {
     if (scan_depth == 0)
     {
-        scan_histograms<false, false>
+        scan_histograms<false, true>
             <<<1, THREADS>>>
             (block_histograms, NULL);
         check_gpu_error("scan_histograms<false, false>");

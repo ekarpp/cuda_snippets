@@ -144,6 +144,8 @@ static void test_create_histogram(u64 n)
 
     std::vector<u32> out(blocks * RADIX_SIZE);
     cudaMemcpy(out.data(), grams, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
+    std::vector<u32> ptrs(blocks*RADIX_SIZE);
+    cudaMemcpy(ptrs.data(), start_ptrs, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
 
     for (int i = 0; i < blocks; i++)
     {
@@ -282,11 +284,14 @@ static void test_sort(u64 len)
 int main()
 {
     srand(time(NULL));
+    test_sort_block(1024);
     test_sort_block(1024 * 1024);
     test_sort_block(12345);
+    test_create_histogram(1024);
     test_create_histogram(1024 * 1024);
     test_create_histogram(12345);
     test_local_scan();
+    test_global_scan(1024);
     test_global_scan(1024 * 1024);
     test_global_scan(12345);
     test_sort(1024);
