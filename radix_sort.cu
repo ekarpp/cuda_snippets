@@ -344,7 +344,7 @@ int radix_sort(int n, u64* input) {
         scan_sizes[i] = (i == 0)
             ? divup(RADIX_SIZE * blocks, ELEM_PER_BLOCK)
             : divup(scan_sizes[i - 1], ELEM_PER_BLOCK);
-        cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
+        cudaMalloc((void **) &scan_sums[i], std::max(ELEM_PER_BLOCK, scan_sizes[i]) * sizeof(u32));
     }
 
     int start_bit = 0;
