@@ -211,8 +211,8 @@ static void test_global_scan(u64 n)
     std::cout << "Testing global scan for " << n << " elements... ";
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
-    std::vector<u32> data = random_u32_masked_8bit(blocks * ELEM_PER_BLOCK);
-    const int scan_depth = std::floor(std::log(blocks) / std::log(ELEM_PER_BLOCK));
+    std::vector<u32> data = random_u32_masked_8bit(n);
+    const int scan_depth = std::floor(std::log(blocks) / std::log(ELEM_PER_BLOCK) + 1 - 1e-10);
 
     /* LAZY, just copied from radix_sort.cu */
     u32 *scan_sums[scan_depth];
@@ -222,14 +222,18 @@ static void test_global_scan(u64 n)
     {
         scan_sums[i] = NULL;
         scan_sizes[i] = (i == 0)
-            ? divup(blocks * ELEM_PER_BLOCK, ELEM_PER_BLOCK)
+            ? blocks
             : divup(scan_sizes[i - 1], ELEM_PER_BLOCK);
-        cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
+        cudaMalloc((void **) &scan_sums[i], std::max(ELEM_PER_BLOCK, scan_sizes[i]) * sizeof(u32));
     }
+
+    const int num_elems = blocks * ELEM_PER_BLOCK;
 
     u32 *gpu = NULL;
     cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u32));
-    cudaMemcpy(gpu, data.data(), blocks * ELEM_PER_BLOCK * sizeof(u32), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu, data.data(), n * sizeof(u32), cudaMemcpyHostToDevice);
+    if (num_elems > n)
+        cudaMemset(gpu + n, 0x0, (num_elems - n) * sizeof(u32));
 
     global_scan(gpu, scan_sums, scan_sizes, scan_depth);
 
