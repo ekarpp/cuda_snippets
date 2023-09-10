@@ -306,8 +306,8 @@ inline int static divup(int a, int b) { return (a + b - 1) / b; }
 
 // https://www.cs.umd.edu/class/spring2021/cmsc714/readings/Satish-sorting.pdf
 int radix_sort(int n, u64* input) {
-    // partial blocks not implemented and overflow in scan if too large (can increase to u64)
-    if (n % ELEM_PER_BLOCK != 0 || n >= 1 << 30)
+    // overflow in scan if too large (can increase to u64)
+    if (n >= 1 << 30)
     {
         return -1;
     }
