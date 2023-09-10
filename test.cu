@@ -112,13 +112,25 @@ static void test_create_histogram(u64 n)
     std::cout << "Testing create_histogram for " << n << " elements... ";
     const int blocks = divup(n, ELEM_PER_BLOCK);
 
-    std::vector<u64> data = random_u64(blocks * ELEM_PER_BLOCK);
+    std::vector<u64> data = random_u64(n);
     for (int i = 0; i < data.size(); i++)
         data[i] &= 0xF;
 
+    u64 offset = 0;
+    while (offset < n)
+    {
+        u64 *start = data.data() + offset;
+        u64 *end = data.data() + std::min(offset + ELEM_PER_BLOCK, n);
+        std::sort(start, end);
+        offset += ELEM_PER_BLOCK;
+    }
+
+    const int num_elem = blocks * ELEM_PER_BLOCK;
     u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, blocks * ELEM_PER_BLOCK * sizeof(u64));
-    cudaMemcpy(gpu, data.data(), blocks * blocks * sizeof(u64), cudaMemcpyHostToDevice);
+    cudaMalloc((void **) &gpu, num_elem * sizeof(u64));
+    cudaMemcpy(gpu, data.data(), n * sizeof(u64), cudaMemcpyHostToDevice);
+    if (num_elem - n > 0)
+        cudaMemset(gpu + n, 0xFF, (num_elem - n) * sizeof(u64));
 
     u32 *grams = NULL;
     cudaMalloc((void **) &grams, blocks * RADIX_SIZE * sizeof(u32));
@@ -138,7 +150,14 @@ static void test_create_histogram(u64 n)
         std::vector<int> local(RADIX_SIZE, 0);
 
         for (int j = 0; j < ELEM_PER_BLOCK; j++)
-            local[data[i * blocks + j]]++;
+        {
+            const int idx = i * ELEM_PER_BLOCK + j;
+            if (idx < n)
+                local[data[idx]]++;
+        }
+
+        if (i == blocks - 1)
+            local[RADIX_SIZE - 1] += num_elem - n;
 
         for (int j = 0; j < RADIX_SIZE; j++)
         {
@@ -149,6 +168,8 @@ static void test_create_histogram(u64 n)
             }
         }
     }
+
+    /* TODO: check start_ptrs */
 
     OK();
 }
@@ -258,7 +279,7 @@ int main()
 {
     srand(time(NULL));
     test_sort_block(12345);
-    test_create_histogram(1024 * 1024);
+    test_create_histogram(12345);
     test_local_scan();
     test_global_scan(1024 * 1024);
     test_sort(1024);
