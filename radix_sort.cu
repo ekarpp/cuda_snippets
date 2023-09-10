@@ -208,7 +208,6 @@ __global__ void add_sums(const u32 *from, u32 *to)
         to[gidx + i] += sum;
 }
 
-
 /*
  * (exclusive) scan-then-propagate: first scan histogram blocks and gather total sum for each.
  * iteratively scan over sum arrays and finally add offset sum to each histogram block.
@@ -237,7 +236,7 @@ void global_scan(u32 *block_histograms,
     for (int i = 0; i < scan_depth - 1; i++)
     {
         scan_histograms<true, false>
-            <<<scan_sizes[i], THREADS>>>
+            <<<scan_sizes[i+1], THREADS>>>
             (scan_sums[i], scan_sums[i+1]);
         check_gpu_error("scan_histograms<true, false>");
     }
@@ -251,14 +250,18 @@ void global_scan(u32 *block_histograms,
 
     /* iteratively in reverse add the scan totals back */
     for (int i = scan_depth - 1; i > 0; i--)
+    {
         add_sums
             <<<scan_sizes[i - 1], THREADS>>>
             (scan_sums[i], scan_sums[i - 1]);
+        check_gpu_error("add_sums");
+    }
 
     /* and finally to the histogram array */
     add_sums
         <<<scan_sizes[0], THREADS>>>
         (scan_sums[0], block_histograms);
+    check_gpu_error("add_sums");
 }
 
 /*
@@ -335,6 +338,7 @@ int radix_sort(int n, u64* input) {
     u32 *block_histograms = NULL;
     cudaMalloc((void **) &block_histograms, blocks * RADIX_SIZE * sizeof(u32));
     const int scan_depth = std::floor(std::log(RADIX_SIZE * blocks) / std::log(ELEM_PER_BLOCK) - 1e-10);
+
     /* sum of each block during histogram scan */
     u32 *scan_sums[scan_depth];
     int scan_sizes[scan_depth];
