@@ -236,8 +236,8 @@ void global_scan(u32 *block_histograms,
     for (int i = 0; i < scan_depth - 1; i++)
     {
         scan_histograms<true, false>
-            <<<scan_sizes[i+1], THREADS>>>
-            (scan_sums[i], scan_sums[i+1]);
+            <<<scan_sizes[i + 1], THREADS>>>
+            (scan_sums[i], scan_sums[i + 1]);
         check_gpu_error("scan_histograms<true, false>, loop");
     }
 
@@ -252,7 +252,7 @@ void global_scan(u32 *block_histograms,
     for (int i = scan_depth - 1; i > 0; i--)
     {
         add_sums
-            <<<scan_sizes[i - 1], THREADS>>>
+            <<<scan_sizes[i], THREADS>>>
             (scan_sums[i], scan_sums[i - 1]);
         check_gpu_error("add_sums, loop");
     }
