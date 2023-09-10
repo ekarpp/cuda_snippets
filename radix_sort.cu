@@ -313,11 +313,14 @@ int radix_sort(int n, u64* input) {
     }
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
+    const int num_elems = ELEM_PER_BLOCK * blocks;
 
     /* main data array */
     u64 *data = NULL;
     cudaMalloc((void **) &data, blocks * ELEM_PER_BLOCK * sizeof(u64));
     cudaMemcpy(data, input, blocks * ELEM_PER_BLOCK * sizeof(u64), cudaMemcpyHostToDevice);
+    if (num_elems > n)
+        cudaMemset(data + n, 0xFF, (num_elems - n) * sizeof(u64));
 
     /* stores data where each block is sorted */
     u64 *data_tmp = NULL;

@@ -283,6 +283,7 @@ int main()
     test_local_scan();
     test_global_scan(1024 * 1024);
     test_sort(1024);
+    test_sort(12345);
     test_sort(1 << 16);
     test_sort(1024 * 1024);
     return 0;
