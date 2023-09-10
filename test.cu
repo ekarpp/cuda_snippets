@@ -69,9 +69,12 @@ static void test_sort_block(u64 n)
     for (int i = 0; i < data.size(); i++)
         data[i] &= 0xF;
 
+    const int num_elem = blocks * ELEM_PER_BLOCK;
     u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, n * sizeof(u64));
+    cudaMalloc((void **) &gpu, num_elem * sizeof(u64));
     cudaMemcpy(gpu, data.data(), n * sizeof(u64), cudaMemcpyHostToDevice);
+    if (num_elem - n > 0)
+        cudaMemset(gpu + n, 0xFF, (num_elem - n) * sizeof(u64));
 
     u64 *out = NULL;
     cudaMalloc((void **) &out, n * sizeof(u64));
@@ -188,7 +191,7 @@ static void test_global_scan(u64 n)
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
     std::vector<u32> data = random_u32_masked_8bit(blocks * ELEM_PER_BLOCK);
-    const int scan_depth = std::floor(std::log(RADIX_SIZE * blocks) / std::log(ELEM_PER_BLOCK) - 1e-10);
+    const int scan_depth = std::floor(std::log(blocks * ELEM_PER_BLOCK) / std::log(ELEM_PER_BLOCK) - 1);
 
     /* LAZY, just copied from radix_sort.cu */
     u32 *scan_sums[scan_depth];
@@ -198,7 +201,7 @@ static void test_global_scan(u64 n)
     {
         scan_sums[i] = NULL;
         scan_sizes[i] = (i == 0)
-            ? divup(RADIX_SIZE * blocks, ELEM_PER_BLOCK)
+            ? divup(blocks, ELEM_PER_BLOCK)
             : divup(scan_sizes[i - 1], ELEM_PER_BLOCK);
         cudaMalloc((void **) &scan_sums[i], scan_sizes[i] * sizeof(u32));
     }
@@ -254,7 +257,7 @@ static void test_sort(u64 len)
 int main()
 {
     srand(time(NULL));
-    test_sort_block(1024 * 1024);
+    test_sort_block(12345);
     test_create_histogram(1024 * 1024);
     test_local_scan();
     test_global_scan(1024 * 1024);
