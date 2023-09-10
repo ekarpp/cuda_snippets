@@ -241,7 +241,6 @@ void global_scan(u32 *block_histograms,
         check_gpu_error("scan_histograms<true, false>, loop");
     }
 
-
     /* the final sum array is just a scan of one block */
     scan_histograms<false, false>
         <<<1, THREADS>>>
