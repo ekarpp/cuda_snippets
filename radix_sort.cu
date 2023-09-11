@@ -12,12 +12,14 @@ typedef uint4 u32_vec;
 
 void check_gpu_error(const char *fn)
 {
+#ifdef DEBUG
     cudaError_t err = cudaDeviceSynchronize();
     if (err != cudaSuccess)
     {
         std::cout << "CUDA error in \"" << fn << "\": " << cudaGetErrorString(err) << std::endl;
         exit(-1);
     }
+#endif
 }
 
 /* 1-bit split */

@@ -4,6 +4,8 @@
 #include <vector>
 #include <iostream>
 
+#define DEBUG
+
 std::vector<u64> random_u64(uint len)
 {
     std::vector<u64> data(len);
