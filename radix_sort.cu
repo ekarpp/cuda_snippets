@@ -31,6 +31,7 @@ __device__ int4 split(const int4 bits)
     ptrs[idx + 1] = bits.y;
     ptrs[idx + 2] = bits.z;
     ptrs[idx + 3] = bits.w;
+
     __syncthreads();
     scan::scan_block<int, false>(ptrs);
     __syncthreads();
@@ -62,13 +63,13 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
 {
     __shared__ u64 shared[ELEM_PER_BLOCK];
 
-
     const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * THREADS + lidx;
     const int idx = lidx * ELEM_PER_THREAD;
 
     u64_vec my_data = data_in[gidx];
 
+    #pragma unroll
     for (int bit = start_bit; bit < start_bit + RADIX; bit++)
     {
         /* TODO: adjust for other vector lengths */
@@ -91,7 +92,6 @@ __global__ void sort_block(const u64_vec* data_in, u64_vec* data_out, const int 
         my_data.y = shared[idx + 1];
         my_data.z = shared[idx + 2];
         my_data.w = shared[idx + 3];
-        __syncthreads();
     }
 
     data_out[gidx] = my_data;
@@ -202,7 +202,6 @@ __global__ void add_sums(const u32 *from, u32 *to)
 
     if (lidx == 0)
         sum = from[blockIdx.x];
-
     __syncthreads();
 
     #pragma unroll
@@ -354,6 +353,7 @@ int radix_sort(int n, u64* input) {
     }
 
     int start_bit = 0;
+    #pragma unroll
     while (start_bit < BITS)
     {
         /*
