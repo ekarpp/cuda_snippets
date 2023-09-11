@@ -6,22 +6,22 @@
 
 #define DEBUG
 
-std::vector<u64> random_u64(uint len)
+std::vector<u64> random_u64(uint len, u64 mask = 0xFFFFFFFFFFFFFFFF)
 {
     std::vector<u64> data(len);
 
     for (uint i = 0; i < len; i++)
-        data[i] = ((u64) rand() << 32) | rand();
+        data[i] = (((u64) rand() << 32) | rand()) & mask;
 
     return data;
 }
 
-std::vector<u32> random_u32_masked_8bit(uint len)
+std::vector<u32> random_u32(uint len, u32 mask = 0xFFFFFFFF)
 {
     std::vector<u32> data(len);
 
     for (uint i = 0; i < len; i++)
-        data[i] = rand() & 0xFF;
+        data[i] = rand() & mask;
 
     return data;
 }
@@ -67,9 +67,7 @@ static void test_sort_block(u64 n)
 {
     std::cout << "Testing sort_block for " << n << " elements... ";
     const int blocks = divup(n, ELEM_PER_BLOCK);
-    std::vector<u64> data = random_u64(n);
-    for (int i = 0; i < data.size(); i++)
-        data[i] &= 0xF;
+    std::vector<u64> data = random_u64(n, 0xF);
 
     const int num_elem = blocks * ELEM_PER_BLOCK;
     u64 *gpu = NULL;
@@ -114,9 +112,7 @@ static void test_create_histogram(u64 n)
     std::cout << "Testing create_histogram for " << n << " elements... ";
     const int blocks = divup(n, ELEM_PER_BLOCK);
 
-    std::vector<u64> data = random_u64(n);
-    for (int i = 0; i < data.size(); i++)
-        data[i] &= 0xF;
+    std::vector<u64> data = random_u64(n, 0xF);
 
     u64 offset = 0;
     while (offset < n)
@@ -197,7 +193,7 @@ static void test_local_scan()
 {
     std::cout << "Testing local scan... ";
 
-    std::vector<u32> data = random_u32_masked_8bit(ELEM_PER_BLOCK);
+    std::vector<u32> data = random_u32(ELEM_PER_BLOCK, 0xFF);
     u32* gpu = NULL;
     cudaMalloc((void **) &gpu, data.size() * sizeof(u32));
     cudaMemcpy(gpu, data.data(), data.size() * sizeof(u32), cudaMemcpyHostToDevice);
@@ -230,7 +226,7 @@ static void test_global_scan(u64 n)
     std::cout << "Testing global scan for " << n << " elements... ";
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
-    std::vector<u32> data = random_u32_masked_8bit(n);
+    std::vector<u32> data = random_u32(n, 0xF);
     const int scan_depth = std::floor(std::log(blocks) / std::log(ELEM_PER_BLOCK) + 1 - 1e-10);
 
     /* LAZY, just copied from radix_sort.cu */
