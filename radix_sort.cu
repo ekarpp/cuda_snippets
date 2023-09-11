@@ -229,7 +229,7 @@ void global_scan(u32 *block_histograms,
     /* first scan the histograms and gather sum for each block */
     scan_histograms<true, false>
         <<<scan_sizes[0], THREADS>>>
-        (block_histograms, scan_sums[scan_depth - 1]);
+        (block_histograms, scan_sums[0]);
     check_gpu_error("scan_histograms<true, false>");
 
     /* iteratively scan the sum arrays if they are too large */
