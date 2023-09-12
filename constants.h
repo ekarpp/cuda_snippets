@@ -12,7 +12,7 @@ constexpr int ELEM_PER_BLOCK = THREADS * ELEM_PER_THREAD;
 // constexpr int WARP_SIZE = 32;
 
 /* tunable */
-constexpr int BITS = 64;
+constexpr int BITS = 32;
 constexpr int RADIX = 4;
 
 constexpr int RADIX_SIZE = 1 << RADIX;

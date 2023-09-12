@@ -5,18 +5,18 @@
 #include <random>
 #include <iostream>
 
-u64 random_u64()
+u32 random_u32()
 {
-    return ((u64) rand() << 32) | rand();
+    return rand();
 }
 
-static void benchmark(u64 len, int iters)
+static void benchmark(u32 len, int iters)
 {
-    std::vector<u64> data(len);
+    std::vector<u32> data(len);
 
     for (int iter = 0; iter < iters; iter++) {
         for (uint i = 0; i < len; i++)
-            data[i] = random_u64();
+            data[i] = random_u32();
 
         auto start = std::chrono::high_resolution_clock::now();
         radix_sort(len, data.data());
@@ -35,7 +35,7 @@ int main(int argc, char** argv)
         std::cout << "./radix_sort_benchmark <testsize> [iters]" << std::endl;
         return 1;
     }
-    const u64 len = std::stol(argv[1]);
+    const u32 len = std::stol(argv[1]);
     const int iters = (argc > 2) ? std::stoi(argv[2]) : 1;
 
     benchmark(len, iters);

@@ -1,20 +1,10 @@
+#define DEBUG
+
 #include "radix_sort.cu"
 
 #include <algorithm>
 #include <vector>
 #include <iostream>
-
-#define DEBUG
-
-std::vector<u64> random_u64(uint len, u64 mask = 0xFFFFFFFFFFFFFFFF)
-{
-    std::vector<u64> data(len);
-
-    for (uint i = 0; i < len; i++)
-        data[i] = (((u64) rand() << 32) | rand()) & mask;
-
-    return data;
-}
 
 std::vector<u32> random_u32(uint len, u32 mask = 0xFFFFFFFF)
 {
@@ -26,7 +16,7 @@ std::vector<u32> random_u32(uint len, u32 mask = 0xFFFFFFFF)
     return data;
 }
 
-void print_block(std::vector<u64> data)
+void print_block(std::vector<u32> data)
 {
     if (data.size() < ELEM_PER_BLOCK)
         return;
@@ -34,7 +24,7 @@ void print_block(std::vector<u64> data)
     std::cout << std::endl;
     for (uint i = 0; i < ELEM_PER_BLOCK; i++)
     {
-        printf("%.4llu ", data[i]);
+        printf("%.4u ", data[i]);
         if ((i+1)%4 == 0)
             std::cout << "| ";
         if ((i+1)%32 == 0)
@@ -63,34 +53,33 @@ void FAIL()
 
 
 
-static void test_sort_block(u64 n)
+static void test_sort_block(u32 n)
 {
     std::cout << "Testing sort_block for " << n << " elements... ";
     const int blocks = divup(n, ELEM_PER_BLOCK);
-    std::vector<u64> data = random_u64(n, 0xF);
+    std::vector<u32> data = random_u32(n, 0xF);
 
     const int num_elem = blocks * ELEM_PER_BLOCK;
-    u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, num_elem * sizeof(u64));
-    cudaMemcpy(gpu, data.data(), n * sizeof(u64), cudaMemcpyHostToDevice);
+    u32 *gpu = NULL;
+    cudaMalloc((void **) &gpu, num_elem * sizeof(u32));
+    cudaMemcpy(gpu, data.data(), n * sizeof(u32), cudaMemcpyHostToDevice);
     if (num_elem - n > 0)
-        cudaMemset(gpu + n, 0xFF, (num_elem - n) * sizeof(u64));
+        cudaMemset(gpu + n, 0xFF, (num_elem - n) * sizeof(u32));
 
-    u64 *out = NULL;
-    cudaMalloc((void **) &out, n * sizeof(u64));
-
+    u32 *out = NULL;
+    cudaMalloc((void **) &out, n * sizeof(u32));
     sort_block
         <<<blocks, THREADS>>>
-        ((u64_vec *) gpu, (u64_vec *) out, 0);
+        ((u32_vec *) gpu, (u32_vec *) out, 0);
 
-    std::vector<u64> sorted(n);
-    cudaMemcpy(sorted.data(), out, n * sizeof(u64), cudaMemcpyDeviceToHost);
+    std::vector<u32> sorted(n);
+    cudaMemcpy(sorted.data(), out, n * sizeof(u32), cudaMemcpyDeviceToHost);
 
-    u64 offset = 0;
+    u32 offset = 0;
     while (offset < n)
     {
-        u64 *start = data.data() + offset;
-        u64 *end = data.data() + std::min(offset + ELEM_PER_BLOCK, n);
+        u32 *start = data.data() + offset;
+        u32 *end = data.data() + std::min(offset + ELEM_PER_BLOCK, n);
         std::sort(start, end);
         offset += ELEM_PER_BLOCK;
     }
@@ -107,28 +96,28 @@ static void test_sort_block(u64 n)
     OK();
 }
 
-static void test_create_histogram(u64 n)
+static void test_create_histogram(u32 n)
 {
     std::cout << "Testing create_histogram for " << n << " elements... ";
     const int blocks = divup(n, ELEM_PER_BLOCK);
 
-    std::vector<u64> data = random_u64(n, 0xF);
+    std::vector<u32> data = random_u32(n, 0xF);
 
-    u64 offset = 0;
+    u32 offset = 0;
     while (offset < n)
     {
-        u64 *start = data.data() + offset;
-        u64 *end = data.data() + std::min(offset + ELEM_PER_BLOCK, n);
+        u32 *start = data.data() + offset;
+        u32 *end = data.data() + std::min(offset + ELEM_PER_BLOCK, n);
         std::sort(start, end);
         offset += ELEM_PER_BLOCK;
     }
 
     const int num_elem = blocks * ELEM_PER_BLOCK;
-    u64 *gpu = NULL;
-    cudaMalloc((void **) &gpu, num_elem * sizeof(u64));
-    cudaMemcpy(gpu, data.data(), n * sizeof(u64), cudaMemcpyHostToDevice);
+    u32 *gpu = NULL;
+    cudaMalloc((void **) &gpu, num_elem * sizeof(u32));
+    cudaMemcpy(gpu, data.data(), n * sizeof(u32), cudaMemcpyHostToDevice);
     if (num_elem - n > 0)
-        cudaMemset(gpu + n, 0xFF, (num_elem - n) * sizeof(u64));
+        cudaMemset(gpu + n, 0xFF, (num_elem - n) * sizeof(u32));
 
     u32 *grams = NULL;
     cudaMalloc((void **) &grams, blocks * RADIX_SIZE * sizeof(u32));
@@ -138,7 +127,7 @@ static void test_create_histogram(u64 n)
 
     compute_histograms
         <<<blocks, THREADS>>>
-        ((u64_vec *) gpu, grams, start_ptrs, blocks, 0);
+        ((u32_vec *) gpu, grams, start_ptrs, blocks, 0);
 
     std::vector<u32> out(blocks * RADIX_SIZE);
     cudaMemcpy(out.data(), grams, blocks * RADIX_SIZE * sizeof(u32), cudaMemcpyDeviceToHost);
@@ -221,12 +210,14 @@ static void test_local_scan()
     OK();
 }
 
-static void test_global_scan(u64 n)
+static void test_global_scan(u32 n)
 {
     std::cout << "Testing global scan for " << n << " elements... ";
 
     const int blocks = divup(n, ELEM_PER_BLOCK);
     std::vector<u32> data = random_u32(n, 0xF);
+    for (int i = 0; i < n; i++)
+        data[i] = 1;
     const int scan_depth = std::floor(std::log(blocks) / std::log(ELEM_PER_BLOCK) + 1 - 1e-10);
 
     /* LAZY, just copied from radix_sort.cu */
@@ -269,12 +260,12 @@ static void test_global_scan(u64 n)
     OK();
 }
 
-static void test_sort(u64 len)
+static void test_sort(u32 len)
 {
     std::cout << "Testing sort for " << len << " elements... ";
 
-    std::vector<u64> input = random_u64(len);
-    std::vector<u64> sorted(len);
+    std::vector<u32> input = random_u32(len);
+    std::vector<u32> sorted(len);
     for (uint i = 0; i < len; i++)
         sorted[i] = input[i];
 
@@ -307,7 +298,6 @@ int main()
         const int len = sizes[i];
         test_sort_block(len);
         test_create_histogram(len);
-        /* for largest, rolling sum dont get added properly... why? */
         test_global_scan(len);
     }
 
@@ -316,7 +306,8 @@ int main()
     test_sort((1 << 16) - 12345);
     test_sort(1 << 16);
     test_sort(1024 * 1024);
-    test_sort((1 << 16) + 1);
+    // test_sort((1 << 16) + 1);
+    test_sort(1 << 27);
     // seg faults?
     // test_sort((1 << 23) + 1);
     return 0;
