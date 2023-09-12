@@ -15,7 +15,7 @@ benchmark: radix_sort.o benchmark.o
 test: test.o
 	$(NVCC) $(NVCCFLAGS) $^ -o $@
 
-radix_sort.o: radix_sort.cu scan.h reduce.h
+radix_sort.o: radix_sort.cu scan.h
 test.o: test.cu radix_sort.o
 
 %.o: %.cu
