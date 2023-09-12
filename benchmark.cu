@@ -83,8 +83,8 @@ int main(int argc, char** argv)
 
     benchmark_gpu(len, iters);
     std::cout << std::endl;
-    benchmark_cpu(len, iters);
-    std::cout << std::endl;
     benchmark_thrust(len, iters);
+    std::cout << std::endl;
+    benchmark_cpu(len, iters);
     return 0;
 }
