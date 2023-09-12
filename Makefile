@@ -1,8 +1,8 @@
 BIN=benchmark test
 NVCC=nvcc
 CXX=g++
-NVCCFLAGS=-G -g --std=c++14 -O3 -arch=sm_61
-CXXFLAGS=-g -Wall -Wextra --std=c++14 -O3 -march=native
+NVCCFLAGS=-G -g --std=c++17 -O3 -arch=sm_86 -Xcompiler -fopenmp
+CXXFLAGS=-g -Wall -Wextra --std=c++17 -O3 -march=native -D_GLIBCXX_PARALLEL -fopenmp
 
 all: $(BIN)
 

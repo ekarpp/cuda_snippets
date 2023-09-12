@@ -2,15 +2,15 @@
 
 #include <chrono>
 #include <vector>
-#include <random>
 #include <iostream>
+#include <parallel/algorithm>
 
 u32 random_u32()
 {
     return rand();
 }
 
-static void benchmark(u32 len, int iters)
+static void benchmark_gpu(u32 len, int iters)
 {
     std::vector<u32> data(len);
 
@@ -25,7 +25,26 @@ static void benchmark(u32 len, int iters)
         auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
         std::cout << "Sorted " << len << " in " << delta.count() << " ms"
-                  << " (" << iter + 1 << "/" << iters << ")" << std::endl;
+                  << " (" << iter + 1 << "/" << iters << ") with GPU" << std::endl;
+    }
+}
+
+static void benchmark_cpu(u32 len, int iters)
+{
+    std::vector<u32> data(len);
+
+    for (int iter = 0; iter < iters; iter++) {
+        for (uint i = 0; i < len; i++)
+            data[i] = random_u32();
+
+        auto start = std::chrono::high_resolution_clock::now();
+        __gnu_parallel::sort(data.begin(), data.end());
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+        std::cout << "Sorted " << len << " in " << delta.count() << " ms"
+                  << " (" << iter + 1 << "/" << iters << ") with CPU" << std::endl;
     }
 }
 
@@ -38,6 +57,7 @@ int main(int argc, char** argv)
     const u32 len = std::stol(argv[1]);
     const int iters = (argc > 2) ? std::stoi(argv[2]) : 1;
 
-    benchmark(len, iters);
+    benchmark_gpu(len, iters);
+    benchmark_cpu(len, iters);
     return 0;
 }
