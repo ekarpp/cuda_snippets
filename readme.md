@@ -7,14 +7,20 @@ CUDA implementation of the GPU radix sort algorithm by Satish, Harris, and Garla
 This implementation is for 32 bit unsigned integers and follows much of what is described by Satish et al.; we use blocks of 256 threads and iterate 4 bits at a time. The scan operation uses a scan-then-propagate scheme (scan blocks locally and gather total sums, add total sums to local scans) with local scans using a warp-scan algorithm.
 
 ```
-Sorted 134217728 in 1018 ms (1/3) with GPU
-Sorted 134217728 in 943 ms (2/3) with GPU
-Sorted 134217728 in 943 ms (3/3) with GPU
-Sorted 134217728 in 902 ms (1/3) with CPU
-Sorted 134217728 in 868 ms (2/3) with CPU
-Sorted 134217728 in 875 ms (3/3) with CPU
+Sorted 134217728 in 1148 ms (1/3) with GPU (our)
+Sorted 134217728 in 944 ms (2/3) with GPU (our)
+Sorted 134217728 in 943 ms (3/3) with GPU (our)
+
+Sorted 134217728 in 940 ms (1/3) with CPU (GCC)
+Sorted 134217728 in 947 ms (2/3) with CPU (GCC)
+Sorted 134217728 in 873 ms (3/3) with CPU (GCC)
+
+Sorted 134217728 in 874 ms (1/3) with GPU (Thrust)
+Sorted 134217728 in 849 ms (2/3) with GPU (Thrust)
+Sorted 134217728 in 849 ms (3/3) with GPU (Thrust)
 ```
-RTX 3080 (our sort) vs Intel i5-12600k (GCC parallel sort)
+RTX 3080 (our sort) vs Intel i5-12600k (GCC parallel sort) vs RTX 3080 (Thrust)
+GPU sorting times include copying data to and from the device.
 
 ###### Bibliography
 <sup><sub>
