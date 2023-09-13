@@ -3,23 +3,29 @@
 #include <thrust/sort.h>
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
+#include <random>
 #include <chrono>
 #include <vector>
 #include <iostream>
 #include <parallel/algorithm>
 
-u32 random_u32()
+
+std::vector<u32> random_vec(u32 len, u32 seed)
 {
-    return rand();
+    std::mt19937 rng(seed);
+    std::vector<u32> data(len);
+    std::uniform_int_distribution<u32> d(0, 0xFFFFFFFF);
+
+    for (u32 i = 0; i < len; i++)
+        data[i] = d(rng);
+
+    return data;
 }
 
-static void benchmark_gpu(u32 len, int iters)
+static void benchmark_gpu(u32 len, u32 iters, u32 seed)
 {
-    std::vector<u32> data(len);
-
-    for (int iter = 0; iter < iters; iter++) {
-        for (uint i = 0; i < len; i++)
-            data[i] = random_u32();
+    for (u32 iter = 0; iter < iters; iter++) {
+        std::vector<u32> data = random_vec(len, seed + iter);
 
         auto start = std::chrono::high_resolution_clock::now();
         radix_sort(len, data.data());
@@ -32,13 +38,10 @@ static void benchmark_gpu(u32 len, int iters)
     }
 }
 
-static void benchmark_thrust(u32 len, int iters)
+static void benchmark_thrust(u32 len, u32 iters, u32 seed)
 {
-    std::vector<u32> data(len);
-
-    for (int iter = 0; iter < iters; iter++) {
-        for (uint i = 0; i < len; i++)
-            data[i] = random_u32();
+    for (u32 iter = 0; iter < iters; iter++) {
+        std::vector<u32> data = random_vec(len, seed + iter);
 
         auto start = std::chrono::high_resolution_clock::now();
         thrust::device_vector<u32> d_data(data.data(), data.data() + len);
@@ -53,13 +56,10 @@ static void benchmark_thrust(u32 len, int iters)
     }
 }
 
-static void benchmark_cpu(u32 len, int iters)
+static void benchmark_cpu(u32 len, u32 iters, u32 seed)
 {
-    std::vector<u32> data(len);
-
-    for (int iter = 0; iter < iters; iter++) {
-        for (uint i = 0; i < len; i++)
-            data[i] = random_u32();
+    for (u32 iter = 0; iter < iters; iter++) {
+        std::vector<u32> data = random_vec(len, seed + iter);
 
         auto start = std::chrono::high_resolution_clock::now();
         __gnu_parallel::sort(data.begin(), data.end());
@@ -78,13 +78,15 @@ int main(int argc, char** argv)
         std::cout << "./radix_sort_benchmark <testsize> [iters]" << std::endl;
         return 1;
     }
-    const u32 len = std::stol(argv[1]);
-    const int iters = (argc > 2) ? std::stoi(argv[2]) : 1;
+    const u32 len = std::stoi(argv[1]);
+    const u32 iters = (argc > 2) ? std::stoi(argv[2]) : 1;
+    const u32 seed = time(NULL);
 
-    benchmark_gpu(len, iters);
+    benchmark_gpu(len, iters, seed);
     std::cout << std::endl;
-    benchmark_thrust(len, iters);
+    benchmark_thrust(len, iters, seed);
     std::cout << std::endl;
-    benchmark_cpu(len, iters);
+    benchmark_cpu(len, iters, seed);
+
     return 0;
 }
