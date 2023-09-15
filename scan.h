@@ -28,9 +28,7 @@ namespace scan
         }
 
         if (lane_id == WARP_SIZE - 1)
-        {
             warp_sums[idx / WARP_SIZE] = my_val;
-        }
         __syncthreads();
 
         if (idx < WARP_SIZE)

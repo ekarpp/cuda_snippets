@@ -183,7 +183,9 @@ __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
     __syncthreads();
 
     if (add_total && threadIdx.x == THREADS - 1)
-        scan_sums[blockIdx.x] = result[lidx + 3 * THREADS] + block_histograms[gidx + 3 * THREADS];
+        scan_sums[blockIdx.x] = (inclusive)
+            ? result[lidx + 3 * THREADS]
+            : result[lidx + 3 * THREADS] + block_histograms[gidx + 3 * THREADS];
 
     for (int i = 0; i < ELEM_PER_THREAD; i++)
         block_histograms[gidx + i * THREADS] = result[lidx + i * THREADS];
