@@ -172,25 +172,21 @@ template <bool add_total, bool inclusive>
 __global__ void scan_histograms(u32 *block_histograms, u32 *scan_sums)
 {
     __shared__ u32 result[ELEM_PER_BLOCK];
-    const int lidx = threadIdx.x * ELEM_PER_THREAD;
+    const int lidx = threadIdx.x;
     const int gidx = blockIdx.x * ELEM_PER_BLOCK + lidx;
 
-    result[lidx + 0] = block_histograms[gidx + 0];
-    result[lidx + 1] = block_histograms[gidx + 1];
-    result[lidx + 2] = block_histograms[gidx + 2];
-    result[lidx + 3] = block_histograms[gidx + 3];
+    for (int i = 0; i < ELEM_PER_THREAD; i++)
+        result[lidx + i * THREADS] = block_histograms[gidx + i * THREADS];
 
     __syncthreads();
     scan::scan_block<u32, inclusive>(result);
     __syncthreads();
 
     if (add_total && threadIdx.x == THREADS - 1)
-        scan_sums[blockIdx.x] = result[lidx + 3] + block_histograms[gidx + 3];
+        scan_sums[blockIdx.x] = result[lidx + 3 * THREADS] + block_histograms[gidx + 3 * THREADS];
 
-    block_histograms[gidx + 0] = result[lidx + 0];
-    block_histograms[gidx + 1] = result[lidx + 1];
-    block_histograms[gidx + 2] = result[lidx + 2];
-    block_histograms[gidx + 3] = result[lidx + 3];
+    for (int i = 0; i < ELEM_PER_THREAD; i++)
+        block_histograms[gidx + i * THREADS] = result[lidx + i * THREADS];
 }
 
 /* add rolling sum from previous blocks */
