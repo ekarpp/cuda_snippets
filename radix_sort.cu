@@ -22,31 +22,32 @@ void check_gpu_error(const char *fn)
 __device__ int4 split(const int4 bits)
 {
     __shared__ int ptrs[ELEM_PER_BLOCK];
-    const int idx = threadIdx.x * ELEM_PER_THREAD;
-    ptrs[idx + 0] = bits.x;
-    ptrs[idx + 1] = bits.y;
-    ptrs[idx + 2] = bits.z;
-    ptrs[idx + 3] = bits.w;
+    const int lidx = threadIdx.x;
+
+    ptrs[lidx + 0 * THREADS] = bits.x;
+    ptrs[lidx + 1 * THREADS] = bits.y;
+    ptrs[lidx + 2 * THREADS] = bits.z;
+    ptrs[lidx + 3 * THREADS] = bits.w;
 
     __syncthreads();
     scan::scan_block<int, false>(ptrs);
     __syncthreads();
 
     int4 ptr;
-    ptr.x = ptrs[idx + 0];
-    ptr.y = ptrs[idx + 1];
-    ptr.z = ptrs[idx + 2];
-    ptr.w = ptrs[idx + 3];
+    ptr.x = ptrs[lidx + 0 * THREADS];
+    ptr.y = ptrs[lidx + 1 * THREADS];
+    ptr.z = ptrs[lidx + 2 * THREADS];
+    ptr.w = ptrs[lidx + 3 * THREADS];
 
     __shared__ uint trues;
     if (threadIdx.x == THREADS - 1)
         trues = ptr.w + bits.w;
     __syncthreads();
 
-    ptr.x = (bits.x) ? ptr.x : trues + idx + 0 - ptr.x;
-    ptr.y = (bits.y) ? ptr.y : trues + idx + 1 - ptr.y;
-    ptr.z = (bits.z) ? ptr.z : trues + idx + 2 - ptr.z;
-    ptr.w = (bits.w) ? ptr.w : trues + idx + 3 - ptr.w;
+    ptr.x = (bits.x) ? ptr.x : trues + lidx + 0 * THREADS - ptr.x;
+    ptr.y = (bits.y) ? ptr.y : trues + lidx + 1 * THREADS - ptr.y;
+    ptr.z = (bits.z) ? ptr.z : trues + lidx + 2 * THREADS - ptr.z;
+    ptr.w = (bits.w) ? ptr.w : trues + lidx + 3 * THREADS - ptr.w;
 
     return ptr;
 }
@@ -55,15 +56,18 @@ __device__ int4 split(const int4 bits)
  * sort block-wise in data out according to RADIX-bits starting from start_bit (LSB).
  * uses 1-bit splits RADIX times.
  */
-__global__ void sort_block(const u32_vec* data_in, u32_vec* data_out, const int start_bit)
+__global__ void sort_block(const u32 *data_in, u32 *data_out, const int start_bit)
 {
     __shared__ u32 shared[ELEM_PER_BLOCK];
 
     const int lidx = threadIdx.x;
-    const int gidx = blockIdx.x * THREADS + lidx;
-    const int idx = lidx * ELEM_PER_THREAD;
+    const int gidx = blockIdx.x * ELEM_PER_BLOCK + lidx;
 
-    u32_vec my_data = data_in[gidx];
+    u32_vec my_data;
+    my_data.x = data_in[gidx + 0 * THREADS];
+    my_data.y = data_in[gidx + 1 * THREADS];
+    my_data.z = data_in[gidx + 2 * THREADS];
+    my_data.w = data_in[gidx + 3 * THREADS];
 
     #pragma unroll
     for (int bit = start_bit; bit < start_bit + RADIX; bit++)
@@ -84,13 +88,16 @@ __global__ void sort_block(const u32_vec* data_in, u32_vec* data_out, const int 
         shared[ptr.w] = my_data.w;
         __syncthreads();
 
-        my_data.x = shared[idx + 0];
-        my_data.y = shared[idx + 1];
-        my_data.z = shared[idx + 2];
-        my_data.w = shared[idx + 3];
+        my_data.x = shared[lidx + 0 * THREADS];
+        my_data.y = shared[lidx + 1 * THREADS];
+        my_data.z = shared[lidx + 2 * THREADS];
+        my_data.w = shared[lidx + 3 * THREADS];
     }
 
-    data_out[gidx] = my_data;
+    data_out[gidx + 0 * THREADS] = my_data.x;
+    data_out[gidx + 1 * THREADS] = my_data.y;
+    data_out[gidx + 2 * THREADS] = my_data.z;
+    data_out[gidx + 3 * THREADS] = my_data.w;
 }
 
 /*
@@ -357,7 +364,7 @@ int radix_sort(int n, u32* input) {
          */
         sort_block
             <<<blocks, THREADS>>>
-            ((u32_vec *) data, (u32_vec *) data_tmp, start_bit);
+            (data, data_tmp, start_bit);
         check_gpu_error("sort_block");
 
         /* (2) write histogram for each block to global memory */

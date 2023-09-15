@@ -70,7 +70,7 @@ static void test_sort_block(u32 n)
     cudaMalloc((void **) &out, n * sizeof(u32));
     sort_block
         <<<blocks, THREADS>>>
-        ((u32_vec *) gpu, (u32_vec *) out, 0);
+        (gpu, out, 0);
 
     std::vector<u32> sorted(n);
     cudaMemcpy(sorted.data(), out, n * sizeof(u32), cudaMemcpyDeviceToHost);
@@ -307,6 +307,7 @@ int main()
     test_sort(1 << 16);
     test_sort(1024 * 1024);
     // test_sort((1 << 16) + 1);
+
     test_sort(1 << 27);
     // seg faults?
     // test_sort((1 << 23) + 1);
